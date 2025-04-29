@@ -1,5 +1,18 @@
 """
-Test for X3DH and Double Ratchet
+Demo for performing an X3DH handshake and verifying Double Ratchet message exchange.
+
+This script:
+  1. Performs an X3DH key agreement between two parties (initiator & responder),
+     verifying that both derive the same shared secret.
+  2. Uses that shared secret to initialize a Double Ratchet session for Alice ↔ Bob,
+     then runs a four-message back-and-forth to confirm encryption/decryption works.
+
+Requirements:
+    - X3DH implementation in `X3DH.py`
+    - Double Ratchet implementation in `Double_Ratchet.py`
+
+Author: Ömer Ünlüsoy
+Date:   30-April-2025
 """
 
 from X3DH import X3DH
@@ -18,19 +31,24 @@ def main() -> None:
 
     # Initiator starts handshake
     message, secret_initiator, ephemeral_private_key = initiator.initiate_handshake(responder_bundle)
+
     # Responder processes handshake and derives same secret
     secret_responder = responder.respond_handshake(message)
 
+    # make sure that the shared secret's match
     assert secret_initiator == secret_responder, "Shared secrets do not match!"
     print("X3DH handshake successful. Shared secret:", secret_initiator.hex())
 
     """Run a four-message Alice ↔ Bob exchange to verify ratchet behavior."""
     print("[Demo] Starting Double Ratchet test...\n")
 
+    # derive the session keys from the X3DH shared secret
     initial_root_key, initial_chain_key = DoubleRatchetSession.derive_root_and_chain_keys(root_key=b"\x00" * 32, dh_shared_secret=secret_initiator)
 
+    # create Alice as the initiator
     alice = DoubleRatchetSession(initial_dh_private_key=ephemeral_private_key, root_key=initial_root_key, sending_chain_key=initial_chain_key, receiving_chain_key=None, initial_remote=responder_bundle["identity_public_key"])
 
+    #create Bob as the responder
     bob = DoubleRatchetSession(initial_dh_private_key=responder.signed_prekey_private_key, root_key=initial_root_key, sending_chain_key=None, receiving_chain_key=initial_chain_key, initial_remote=message["initiator_ephemeral_public_key"])
 
     # Initial DH exchange

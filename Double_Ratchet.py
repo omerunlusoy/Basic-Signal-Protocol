@@ -12,6 +12,9 @@ and decryption succeed—even with out-of-order delivery.
 
 Dependencies:
     pip install cryptography
+
+Author: Ömer Ünlüsoy
+Date:   30-April-2025
 """
 
 from typing import Dict, Optional, Tuple

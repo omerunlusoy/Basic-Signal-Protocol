@@ -1,7 +1,10 @@
 """
-    simple SHA-256 hashing and verification.
-    Fast and not memory-intensive, so not so secure for password storage.
-    https://docs.python.org/3/library/hashlib.html#hashlib.sha256
+Simple SHA-256 hashing and verification from hashlib.
+Fast and not memory-intensive, so not so secure for password storage.
+https://docs.python.org/3/library/hashlib.html#hashlib.sha256
+
+Author: Ömer Ünlüsoy
+Date:   30-April-2025
 """
 
 import hashlib

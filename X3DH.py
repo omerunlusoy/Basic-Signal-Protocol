@@ -26,6 +26,9 @@ Note:
         (stored encrypted on Signal’s servers as profile blob)
     Your first message establishes X3DH and then sends your
         symmetric profile key
+
+Author: Ömer Ünlüsoy
+Date:   30-April-2025
 """
 
 from typing import Tuple, List, Optional

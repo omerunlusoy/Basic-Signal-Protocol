@@ -1,121 +1,186 @@
 """
-Test for Server and Client
+Integration test for the basic Signal protocol Server and Client implementations.
+
+This script launches a server process and four client processes (Alice, Bob, Charlie, Dave)
+to simulate registration, key exchanges, and encrypted message exchanges. Each client
+sends and receives messages in turn, demonstrating initial handshakes, ratchet updates,
+and fallback behavior when the recipient is unknown.
+
+Author: Ömer Ünlüsoy
+Date:   30-April-2025
 """
 
 import multiprocessing
 import time
 
-from Server import Server  # your Server implementation
-from Client import Client  # your Client implementation
+from Server import Server
+from Client import Client
 
+# Toggle verbose output for debug logging in clients
 verbose_ = False
 
+
 def run_server():
+    """
+    Start the Signal protocol server.
+
+    Creates and runs a Server instance that listens on localhost:12345
+    and handles incoming client connections until the process is terminated.
+    """
     Server(verbose=False)
-    # print("[Server] starting…")
+    # The server loop runs indefinitely until externally terminated.
 
 
 def run_bob():
-    time.sleep(2)
-    if verbose_:
-        print("Process 2: Bob")
+    """
+    Simulate Bob’s behavior: register, add contacts, receive and reply to messages.
+
+    - Waits for server to start.
+    - Registers as phone "0002" with name "Bob".
+    - Adds Alice as a contact.
+    - Waits for Alice’s initial handshake messages.
+    - Fetches and decrypts incoming messages.
+    - Sends multiple replies to Alice.
+    - Sends messages to Charlie and Dave (including unknown contacts).
+    - Lists final contact state.
+    """
+    time.sleep(2)  # allow server to come up
+
     bob = Client(phone_number="0002", name="Bob", verbose=verbose_)
-    if verbose_:
-        print("Process 2: Bob")
     bob.add_contact(phone_number="0001", name="Alice")
 
-    time.sleep(3)  # wait for Alice’s initial message
-    if verbose_:
-        print("\nProcess 2: Bob")
+    time.sleep(3)  # wait for Alice’s initial handshake
     bob.check_for_messages()
-    if verbose_:
-        print("Process 2: Bob")
+
+    # Send a series of encrypted replies to Alice
     bob.send_private_message(name="Alice", message="Hello Alice!")
     bob.send_private_message(name="Alice", message="I am fine, thank you.")
     bob.send_private_message(name="Alice", message="Glad to see it works.")
-    time.sleep(5)  # give Alice time to fetch it
-    if verbose_:
-        print("\nProcess 2: Bob")
+
+    time.sleep(5)  # give Alice time to fetch replies
     bob.check_for_messages()
+
+    # Send messages to other contacts (including first-time and unknown)
     bob.send_private_message(name="Charlie", message="Hello Charlie!")
     bob.send_private_message(phone_number="0003", message="How are you?")
     bob.send_private_message(phone_number="0004", message="Who is this?")
+
+    # Display Bob’s contact list at end of run
     bob.list_contacts()
 
 
 def run_alice():
-    time.sleep(2)  # ensure te server is up
-    if verbose_:
-        print("\nProcess 1: Alice")
-    alice = Client(phone_number="0001", name="Alice", about="Love from Alice :)", receivers_can_see_my_name=True, verbose=verbose_)
-    if verbose_:
-        print("Process 1: Alice")
+    """
+    Simulate Alice’s behavior: register, add Bob, send initial messages, then fetch replies.
+
+    - Waits for server to start.
+    - Registers as phone "0001" with name "Alice".
+    - Adds Bob as a contact.
+    - Sends three initial messages to Bob to initiate X3DH handshake + ratchet chain.
+    - Waits for Bob’s responses.
+    - Fetches and decrypts incoming messages from Bob.
+    - Lists final contact state.
+    """
+    time.sleep(2)  # ensure the server is ready
+
+    alice = Client(
+        phone_number="0001",
+        name="Alice",
+        about="Love from Alice :)",
+        receivers_can_see_my_name=True,
+        verbose=verbose_
+    )
     alice.add_contact(phone_number="0002", name="Bob")
-    if verbose_:
-        print("Process 1: Alice")
+
+    time.sleep(1)  # ensure Bob is registered
+
+    # Send initial handshake and messages to Bob
     alice.send_private_message(name="Bob", message="Hello Bob!")
     alice.send_private_message(name="Bob", message="How are you?")
     alice.send_private_message(name="Bob", message="I am just testing Signal.")
 
-    time.sleep(5)  # let Bob process and reply
-    if verbose_:
-        print("\nProcess 1: Alice")
+    time.sleep(5)  # allow Bob to process and reply
     alice.check_for_messages()
     alice.list_contacts()
 
 
 def run_charlie():
-    time.sleep(6)  # ensure te server is up
-    if verbose_:
-        print("\nProcess 3: Charlie")
-    charlie = Client(phone_number="0003", name="Charlie", receivers_can_see_my_name=True, verbose=verbose_)
-    if verbose_:
-        print("Process 3: Charlie")
+    """
+    Simulate Charlie’s behavior: register, add Bob, send one message, then fetch replies.
+
+    - Registers as phone "0003" with name "Charlie".
+    - Adds Bob as a contact.
+    - Sends an initial message to Bob.
+    - Waits for any responses.
+    - Fetches and decrypts incoming messages.
+    """
+    time.sleep(6)  # ensure the server has been up long enough
+
+    charlie = Client(
+        phone_number="0003",
+        name="Charlie",
+        receivers_can_see_my_name=True,
+        verbose=verbose_
+    )
     charlie.add_contact(phone_number="0002", name="Bob")
-    if verbose_:
-        print("Process 3: Charlie")
+
+    # Send a single message to Bob
     charlie.send_private_message(name="Bob", message="Hello Bob!")
-    time.sleep(6)
+    time.sleep(6)  # await replies
     charlie.check_for_messages()
 
 
 def run_dave():
-    time.sleep(8)  # ensure te server is up
-    if verbose_:
-        print("\nProcess 4: Dave")
-    dave = Client(phone_number="0004", name="Dave", receivers_can_see_my_name=False, verbose=verbose_)
-    if verbose_:
-        print("Process 4: Dave")
-    # dave.add_contact(phone_number="0002", name="Bob")
-    if verbose_:
-        print("Process 4: Dave")
-    dave.send_private_message(phone_number="0002", message="Hello Bob, it is Dave, save my number please.")
+    """
+    Simulate Dave’s behavior: register, send a message to Bob without adding as contact, then fetch replies.
+
+    - Registers as phone "0004" with the name "Dave".
+    - Does not add Bob explicitly as a contact.
+    - Sends a message to Bob; Bob should add Dave on first contact.
+    - Waits for any responses.
+    - Fetches and decrypts incoming messages.
+    """
+    time.sleep(8)  # wait for server and other processes
+
+    dave = Client(
+        phone_number="0004",
+        name="Dave",
+        receivers_can_see_my_name=False,
+        verbose=verbose_
+    )
+
+    # Send a message directly using Bob's phone number key lookup
+    dave.send_private_message(
+        phone_number="0002",
+        message="Hello Bob, it is Dave, save my number please."
+    )
     time.sleep(6)
     dave.check_for_messages()
 
 
 if __name__ == "__main__":
-    # Spawn the three processes
+    # Launch server and client processes in parallel
     p_server = multiprocessing.Process(target=run_server, name="Server")
-    p_bob = multiprocessing.Process(target=run_bob, name="Bob")
     p_alice = multiprocessing.Process(target=run_alice, name="Alice")
+    p_bob = multiprocessing.Process(target=run_bob, name="Bob")
     p_charlie = multiprocessing.Process(target=run_charlie, name="Charlie")
     p_dave = multiprocessing.Process(target=run_dave, name="Dave")
 
+    # Start all processes
     p_server.start()
-    p_bob.start()
     p_alice.start()
+    p_bob.start()
     p_charlie.start()
     p_dave.start()
 
-    # Wait for the clients to finish
+    # Wait for clients to finish their interactions
     p_alice.join()
     p_bob.join()
     p_charlie.join()
     p_dave.join()
 
-    # Tear down the server
+    # Terminate the server process
     print("\nProcess 0: Server")
-    print("\t Terminating server")
+    print("\tTerminating server")
     p_server.terminate()
     p_server.join()
