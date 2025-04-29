@@ -4,8 +4,8 @@ Educational implementation of the Signal Double Ratchet
 
 This file shows the cryptographic mechanics of Signal’s Double Ratchet
 (X25519 + symmetric-key ratchet). It is intentionally minimal,
-omitting X3DH authentication, padding, replay windows, and constant-time
-safeguards, so **do not use this exact code in production**.
+omitting padding, replay windows, and constant-time safeguards,
+so **do not use this exact code in production**.
 
 Running this file prints a short Alice ↔ Bob conversation proving that encryption
 and decryption succeed—even with out-of-order delivery.

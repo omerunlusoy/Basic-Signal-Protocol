@@ -29,7 +29,7 @@ from tzlocal import get_localzone  # timezone information for timestamp
 
 from SHA256 import SHA256
 from X3DH import X3DH
-from Double_Ratchet import DoubleRatchetSession
+from DoubleRatchet import DoubleRatchetSession
 
 from PrekeyBundle import serialize_prekey_bundle, deserialize_prekey_bundle
 from PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message, list_messages

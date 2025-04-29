@@ -9,14 +9,14 @@ This script:
 
 Requirements:
     - X3DH implementation in `X3DH.py`
-    - Double Ratchet implementation in `Double_Ratchet.py`
+    - Double Ratchet implementation in `DoubleRatchet.py`
 
 Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
 
 from X3DH import X3DH
-from Double_Ratchet import DoubleRatchetSession
+from DoubleRatchet import DoubleRatchetSession
 
 
 def main() -> None:

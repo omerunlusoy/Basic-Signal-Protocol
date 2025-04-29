@@ -10,7 +10,7 @@ Date:   30-April-2025
 
 from typing import TypedDict
 
-from Double_Ratchet import DoubleRatchetSession
+from DoubleRatchet import DoubleRatchetSession
 from Profile import Profile
 
 
