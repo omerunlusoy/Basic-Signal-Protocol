@@ -48,7 +48,7 @@ def serialize_profile(profile: Profile) -> bytes:
 
 def deserialize_profile(data: bytes) -> Profile:
     """
-    Reconstruct a Profile object from a bytes payload.
+    Reconstruct a Profile object from bytes' payload.
 
     Unpickles the data and validates that it is a dict matching the Profile schema.
 
@@ -57,7 +57,7 @@ def deserialize_profile(data: bytes) -> Profile:
 
     Raises:
         TypeError: If the unpickled object is not a dict.
-        ValueError: If required profile keys are missing.
+        ValueError: If 'required profile keys' are missing.
 
     Returns:
         A Profile TypedDict populated with the deserialized values.

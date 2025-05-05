@@ -46,7 +46,7 @@ def serialize_initial_message(message: InitialMessage) -> dict[str, bytes]:
             encoding=Encoding.Raw,
             format=PublicFormat.Raw
         ),
-        # Serialize ephemeral handshake public key to 32 raw bytes
+        # Serialize the handshake ephemeral public key to 32 raw bytes
         "initiator_ephemeral_public_key": message["initiator_ephemeral_public_key"].public_bytes(
             encoding=Encoding.Raw,
             format=PublicFormat.Raw
@@ -68,7 +68,7 @@ def deserialize_initial_message(data: dict[str, bytes]) -> InitialMessage:
 
     Raises:
         TypeError: If `data` is not a dict.
-        ValueError: If required keys are missing from `data`.
+        ValueError: If 'required keys' are missing from `data`.
 
     Returns:
         An InitialMessage TypedDict with reconstructed key objects.
@@ -96,5 +96,5 @@ def deserialize_initial_message(data: dict[str, bytes]) -> InitialMessage:
     return InitialMessage(
         initiator_identity_public_key=identity_key,
         initiator_ephemeral_public_key=ephemeral_key,
-        one_time_prekey_public_index=data["one_time_prekey_public_index"]
+        one_time_prekey_public_index=int(data["one_time_prekey_public_index"])
     )

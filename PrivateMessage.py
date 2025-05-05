@@ -9,7 +9,7 @@ Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
 
-from typing import TypedDict, Any
+from typing import TypedDict, Tuple, Any
 
 from InitialMessage import InitialMessage, serialize_initial_message, deserialize_initial_message
 
@@ -35,7 +35,7 @@ class PrivateMessage(TypedDict):
     message: str | bytes | InitialMessage
     is_initial_message: bool
     timestamp: str
-    profile_serialized_encrypted: bytes | None
+    profile_serialized_encrypted: Tuple[bytes, bytes, bytes] | bytes | None
 
 def serialize_private_message(message: PrivateMessage) -> dict[str, Any]:
     """
@@ -79,10 +79,10 @@ def deserialize_private_message(data: dict[str, Any]) -> PrivateMessage:
 
     Raises:
         TypeError: If `data` is not a dict.
-        ValueError: If required keys are missing.
+        ValueError: If 'required keys' are missing.
 
     Returns:
-        A fully-typed PrivateMessage object.
+        A fully typed PrivateMessage object.
     """
     if not isinstance(data, dict):
         raise TypeError("Deserialized object is not a dict")
@@ -106,31 +106,3 @@ def deserialize_private_message(data: dict[str, Any]) -> PrivateMessage:
         timestamp=data["timestamp"],
         profile_serialized_encrypted=data.get("profile_serialized_encrypted")
     )
-
-def list_messages(name: str, messages: dict[str, list[dict]]):
-    """
-    Print all stored messages for a user, grouped by sender and ordered by timestamp.
-
-    Iterates through the `messages` dict (keyed by sender ID), sorts each sender’s
-    message list chronologically, and prints them with timestamps. If no messages
-    exist for any sender, prints a placeholder line.
-
-    Args:
-        name:     Display name of the message owner (for header text).
-        messages: Mapping from sender ID to list of raw message dicts.
-    """
-    # If every sender’s list is empty, notify the user and return
-    if not any(messages[s] for s in messages):
-        print(f"No messages for {name}.")
-        return
-
-    print(f"\nMessages for {name}:")
-    for sender, msg_list in messages.items():
-        if not msg_list:
-            continue  # Skip empty lists
-
-        # Sort this sender's messages by ISO timestamp
-        msg_list.sort(key=lambda x: x["timestamp"])
-        print(f"\tFrom {msg_list[0]['sender']}:")
-        for msg in msg_list:
-            print(f"\t\t({msg['timestamp']}): {msg['message']}")

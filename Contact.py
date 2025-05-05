@@ -22,7 +22,7 @@ class Contact(TypedDict):
         name: Optional label the user assigned to this contact.
         phone_number: The contact's phone number as a string.
         phone_hashed: Hashed phone number used as the unique ID on the server.
-        profile: Deserialized Profile object received from this contact (may be None).
+        profile: Deserialized Profile object received from this contact (might be None).
         prekey_bundle_serialized: The raw bytes of the contact's latest PreKeyBundle.
         x3dh_secret: Shared secret established via X3DH (None until handshake completes).
         session: Active DoubleRatchetSession for this contact (None before ratchet starts).

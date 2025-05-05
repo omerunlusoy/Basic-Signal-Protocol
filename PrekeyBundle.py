@@ -86,7 +86,7 @@ def deserialize_prekey_bundle(data: dict[str, bytes]) -> PreKeyBundle:
 
     Raises:
         TypeError: If `data` is not a dict.
-        ValueError: If required keys are missing.
+        ValueError: If 'required keys' are missing.
 
     Returns:
         A PreKeyBundle TypedDict with reconstructed key objects.
@@ -117,5 +117,5 @@ def deserialize_prekey_bundle(data: dict[str, bytes]) -> PreKeyBundle:
         ),
         signed_prekey_signature=data["signed_prekey_signature"],
         one_time_prekey_public_list=one_time_deserialized,
-        one_time_prekey_public_index=data["one_time_prekey_public_index"]
+        one_time_prekey_public_index=int(data["one_time_prekey_public_index"])
     )

@@ -18,6 +18,9 @@ Example:
     client.send_private_message(name="Alice", message="Hello, Alice!")
     client.check_for_messages()
 
+TODO:
+    - make sure __update_profile() always uses the correct name (DONE!)
+
 Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
@@ -32,9 +35,9 @@ from X3DH import X3DH
 from DoubleRatchet import DoubleRatchetSession
 
 from PrekeyBundle import serialize_prekey_bundle, deserialize_prekey_bundle
-from PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message, list_messages
+from PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
 from Profile import Profile, serialize_profile, deserialize_profile
-from Contact import Contact, list_contact
+from ClientDatabase import ClientDatabase
 
 
 class Client:
@@ -53,10 +56,7 @@ class Client:
             number, about information, and profile picture.
         receivers_can_see_my_name (bool): Determines if receivers can see the
             client's display name.
-        contacts (dict[str, Contact]): The list of contacts associated with the
-            client, keyed by contact name.
-        messages (dict[str, list[PrivateMessage]]): Stored messages for each
-            contact, keyed by contact name.
+        database (ClientDatabase): The client's database containing the client's contacts and messages.
         verbose (bool): Toggle for verbose output during operations.
         phone_hashed (str): Hashed version of the client's phone number.
         x3dh (X3DH): Instance of X3DH protocol for managing the cryptographic
@@ -64,18 +64,12 @@ class Client:
         server_port (int): The port used by the server for communication.
     """
 
-    def __init__(self, phone_number: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False,
-                 contacts: dict[str, Contact] = None, messages: dict[str, list[PrivateMessage]] = None, verbose: bool = False):
+    def __init__(self, phone_number: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False, verbose: bool = False):
 
         self.profile = Profile(name=name, phone_number=phone_number, about=about, profile_picture=profile_picture)
         self.receivers_can_see_my_name = receivers_can_see_my_name
 
-        self.contacts = contacts
-        if contacts is None:
-            self.contacts = {}
-        self.messages = messages
-        if messages is None:
-            self.messages = {}
+        self.database = ClientDatabase(phone_number=phone_number, password="1234")
         self.verbose = verbose
 
         self.phone_hashed = Client.__hash_phone_number(phone_number)
@@ -125,28 +119,30 @@ class Client:
         phone_number_ = phone_number
         # if the name is provided, fetch the phone_number from the contacts dictionary (name can be contact name or profile name)
         if name is not None:
-            phone_number_ = self.__get_phone_number_from_name(name)
+            phone_number_ = self.database.get_phone_number_from_name(name)
             if phone_number_ is None:
-                phone_number_ = self.__get_phone_number_from_profile_name(name)
+                phone_number_ = self.database.get_phone_number_from_profile_name(name)
                 if phone_number_ is None:
                     raise ValueError("Contact not found!")
         # if the phone number is provided, check if it is a contact (if not, add it without a name)
         elif phone_number is not None:
-            if phone_number not in self.contacts:
+            if not self.database.phone_number_in_contacts(phone_number):
                 self.add_contact(phone_number=phone_number)
         else:
             raise ValueError("Either name or phone_number must be provided.")
 
+        contact = self.database.get_contact(phone_number_)
+
         # check if a session exists, if not initiate handshake
-        if self.contacts[phone_number_]["session"] is None:
+        if contact["session"] is None:
             self.__initiate_handshake(phone_number_)
 
         # encrypt the message and profile
-        session = self.contacts[phone_number_]["session"]
+        session = contact["session"]
         message_encrypted_ = session.encrypt_message(str.encode(message))
         profile_serialized_encrypted_ = session.encrypt_message(self.__get_serialized_profile_for_sender(phone_number_))
         serialized_private_message = serialize_private_message(
-            PrivateMessage(sender=self.phone_hashed, receiver=self.contacts[phone_number_]["phone_hashed"], message=message_encrypted_, is_initial_message=False, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_))
+            PrivateMessage(sender=self.phone_hashed, receiver=contact["phone_hashed"], message=message_encrypted_, is_initial_message=False, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_))
         # create a private message tuple and serialize with pickle
         message_encrypted_tuple = ("private_message", serialized_private_message)
         message_encrypted_tuple_serialized = pickle.dumps(message_encrypted_tuple)
@@ -192,15 +188,15 @@ class Client:
                 sender_phone_number = sender_profile["phone_number"]
 
                 # add to contacts if not already there
-                if sender_phone_number not in self.contacts:
+                if not self.database.phone_number_in_contacts(sender_phone_number):
                     self.add_contact(phone_number=sender_phone_number)
 
                 # update the profile of the sender
-                self.__update_profile(sender_profile)
+                self.database.update_profile(sender_profile=sender_profile)
 
                 # update the x3dh secret and session
-                self.__update_x3dh_secret(sender_phone_number, x3dh_secret)
-                self.__update_x3dh_session(sender_phone_number, receiver_session)
+                self.database.update_x3dh_secret(phone_number=sender_phone_number, x3dh_secret=x3dh_secret)
+                self.database.update_double_ratchet_session(phone_number=sender_phone_number, session=receiver_session)
 
         # check for non-initial messages and store them
         # at this point; the client has the sender's phone number, session, and profile (name as well if the sender is a contact)
@@ -212,10 +208,10 @@ class Client:
             if not private_message["is_initial_message"]:
 
                 # the sender's phone number will always be present in any private message in the attached profile
-                _, sender_phone_number = self.__get_name_and_number_from_hash(private_message["sender"])
+                _, sender_phone_number = self.database.get_contact_name_and_number_from_hash(private_message["sender"])
 
                 # fetch the session from the sender's phone number (we assume that handshake already happened and the session is created.)
-                session = self.contacts[sender_phone_number]["session"]
+                session = self.database.get_contact(sender_phone_number)["session"]
                 if session is not None:
 
                     # decrypt the message and profile, store it in the messages dictionary
@@ -225,32 +221,33 @@ class Client:
                         "profile_serialized_encrypted"][1], private_message["profile_serialized_encrypted"][2]))
 
                     # update the saved profile to the latest attached one
-                    self.__update_profile(sender_profile)
+                    self.database.update_profile(sender_profile)
 
                     # update the message sender and receiver info and save the decrypted version
                     sender_phone_number = sender_profile["phone_number"]
-                    if self.contacts[sender_phone_number]["name"] is None:
+                    contact = self.database.get_contact(sender_phone_number)
+                    if contact["name"] is None:
                         if sender_profile["name"] is None:
                             private_message["sender"] = sender_phone_number
                         else:
                             private_message["sender"] = sender_profile["name"]
                     else:
-                        private_message["sender"] = self.contacts[sender_phone_number]["name"]
+                        private_message["sender"] = contact["name"]
 
                     private_message["receiver"] = self.profile["name"]
                     private_message["message"] = message_decrypted
 
                     # add the message to the messages list
-                    self.messages[sender_phone_number].append(private_message)
+                    self.database.add_message_to(sender_phone_number, private_message)
                 else:
                     raise ValueError("Session not found!")
 
         # list all the messages
-        list_messages(self.profile["name"], self.messages)
+        self.database.list_all_messages(self.profile["name"])
 
     def add_contact(self, phone_number: str, name: str = None) -> None:
         """
-        Adds a new contact to the contacts list with the provided phone number and optional name.
+        Adds a new contact to the contacts' list with the provided phone number and optional name.
         Hashes the phone number and initializes an empty list of messages for the contact.
 
         Args:
@@ -264,23 +261,15 @@ class Client:
         phone_hashed_ = Client.__hash_phone_number(phone_number)
 
         # create a new Contact instance and store it in contacts dict with the phone number as the key
-        self.contacts[phone_number] = Contact(name=name, phone_number=phone_number, profile=None, phone_hashed=phone_hashed_, prekey_bundle_serialized=None, x3dh_secret=None, session=None)
+        self.database.add_contact(name=name, phone_number=phone_number, phone_hashed=phone_hashed_)
 
         # initialize an empty messages_from_phone_number list within the messages dict with the phone number as the key
-        self.messages[phone_number] = []
+        self.database.create_empty_message_list_for(phone_number)
         if self.verbose:
             print(f"\t Contact {name} ({phone_number}) added to contacts.")
 
     def list_contacts(self) -> None:
-        """Lists all contacts associated with the user's profile."""
-        # check if there is any contact saved
-        if self.contacts == {}:
-            print(f"\n{self.profile["name"]} does not have any contacts.")
-        else:
-            print(f"\n{self.profile['name']} has the following contacts:")
-            # iterate within the contacts and list them one by one
-            for _, contact in self.contacts.items():
-                list_contact(contact)
+        self.database.list_contacts(self.profile["name"])
 
     def receivers_can_see_my_name(self, receivers_can_see_my_name: bool = False) -> None:
         """Toggles whether receivers can see the client's display name."""
@@ -288,27 +277,27 @@ class Client:
 
     def __initiate_handshake(self, phone_number: str):
         """Initiates the X3DH handshake with a given contact."""
-        if phone_number in self.contacts:
+        if self.database.phone_number_in_contacts(phone_number):
 
             # load prekey bundle
             self.__ask_server_for_prekey_bundle(phone_number)
-            receiver_prekey_bundle_ = deserialize_prekey_bundle(self.contacts[phone_number]["prekey_bundle_serialized"])
-            self.x3dh.load_peer_prekey_bundle(receiver_prekey_bundle_)
+            receiver_prekey_bundle_ = deserialize_prekey_bundle(self.database.get_contact(phone_number)["prekey_bundle_serialized"])
+            X3DH.verify_signed_prekey_signature(receiver_prekey_bundle_)
 
             # x3dh initiate handshake (derive x3dh secret)
             x3dh_first_message, x3dh_secret, ephemeral_private_key = self.x3dh.initiate_handshake(receiver_prekey_bundle_, receiver_prekey_bundle_["one_time_prekey_public_index"])
-            self.__update_x3dh_secret(phone_number, x3dh_secret)
+            self.database.update_x3dh_secret(phone_number=phone_number, x3dh_secret=x3dh_secret)
 
             # establish "sender" DoubleRatchetSession
             initial_root_key, initial_chain_key = DoubleRatchetSession.derive_root_and_chain_keys(root_key=b"\x00" * 32, dh_shared_secret=x3dh_secret)
             sender_session = DoubleRatchetSession(initial_dh_private_key=ephemeral_private_key, root_key=initial_root_key, sending_chain_key=initial_chain_key, receiving_chain_key=None, initial_remote=receiver_prekey_bundle_["identity_public_key"])
-            self.__update_x3dh_session(phone_number, sender_session)
+            self.database.update_double_ratchet_session(phone_number=phone_number, session=sender_session)
 
             # send x3dh_first_message to server
             profile_serialized_encrypted_ = sender_session.encrypt_message(self.__get_serialized_profile_for_sender(phone_number))
 
             # create a handshake message to be stored on the server
-            x3dh_first_message_tuple = ("initial_message", serialize_private_message(PrivateMessage(sender=self.phone_hashed, receiver=self.contacts[phone_number]["phone_hashed"], message=x3dh_first_message, is_initial_message=True, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_)))
+            x3dh_first_message_tuple = ("initial_message", serialize_private_message(PrivateMessage(sender=self.phone_hashed, receiver=self.database.get_contact(phone_number)["phone_hashed"], message=x3dh_first_message, is_initial_message=True, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_)))
 
             # serialize the message and send it to the server
             x3dh_first_message_tuple_serialized = pickle.dumps(x3dh_first_message_tuple)
@@ -317,7 +306,6 @@ class Client:
                 print("\t", server_respond)
 
             # Zeroize ephemeral_private_key
-            ephemeral_private_key = None
             del ephemeral_private_key
         else:
             raise ValueError("Contact not found!")
@@ -353,7 +341,7 @@ class Client:
         """Asks the server for a prekey bundle for a given contact."""
 
         # fetch the hashed phone number from contacts for the server
-        phone_hashed_ = self.contacts[phone_number]["phone_hashed"]
+        phone_hashed_ = self.database.get_contact(phone_number)["phone_hashed"]
 
         # create a server request tuple and serialize
         fetch_tuple = ("fetch_prekey_bundle", self.phone_hashed, phone_hashed_)
@@ -361,48 +349,7 @@ class Client:
 
         # save server response as the prekey bundle
         prekey_bundle_serialized_ = self.__send_to_server(fetch_tuple_serialized, buffer_size=2048)
-        self.__update_prekey_bundle_serialized(phone_number, prekey_bundle_serialized_)
-
-    def __update_profile(self, sender_profile: Profile) -> None:
-        """Updates the profile of a given contact."""
-        self.contacts[sender_profile["phone_number"]]["profile"] = sender_profile
-
-    def __update_prekey_bundle_serialized(self, phone_number: str, prekey_bundle_serialized: bytes) -> None:
-        """Updates the prekey bundle of a given contact."""
-        self.contacts[phone_number]["prekey_bundle_serialized"] = prekey_bundle_serialized
-
-    def __update_x3dh_secret(self, phone_number: str, x3dh_secret: bytes) -> None:
-        """Updates the x3dh secret of a given contact."""
-        self.contacts[phone_number]["x3dh_secret"] = x3dh_secret
-
-    def __update_x3dh_session(self, phone_number: str, session: DoubleRatchetSession) -> None:
-        """Updates the x3dh session of a given contact."""
-        self.contacts[phone_number]["session"] = session
-
-    def __get_name_and_number_from_hash(self, phone_hashed: str) -> tuple[str | None, str | None]:
-        """
-        Retrieve the name and phone number associated with a given hashed phone number.
-
-        This method searches through the stored contacts. If a match is found,
-        it returns the corresponding name (which can still be None) and phone
-        number. If no match is found, it returns None for both values.
-
-        Parameters:
-            phone_hashed (str): The hashed phone number to search for.
-
-        Returns:
-            tuple[str | None, str | None]: A tuple where the first element is the
-            name associated with the hashed phone number (or None if no match is
-            found or the name is not saved along with the phone number), and the
-            second element is the actual phone number (or None if no match is found).
-        """
-        # iterate over the contacts
-        for phone_number, contact in self.contacts.items():
-            # if the hashed phone numbers match, return the name and the phone number, the name can still be None
-            if contact["phone_hashed"] == phone_hashed:
-                return contact["name"], phone_number
-        # if not found, return None
-        return None, None
+        self.database.update_prekey_bundle_serialized(phone_number=phone_number, prekey_bundle_serialized=prekey_bundle_serialized_)
 
     def __get_serialized_profile_for_sender(self, phone_number: str) -> bytes:
         """
@@ -421,25 +368,10 @@ class Client:
                 The serialized representation of the user's profile appropriate for the sender.
         """
         # if the sender can view the user's profile (phone is saved or the user allows everyone to see their profile)
-        if self.receivers_can_see_my_name or (phone_number in self.contacts and self.contacts[phone_number]["name"] is not None):
+        if self.receivers_can_see_my_name or (self.database.phone_number_in_contacts(phone_number) and self.database.get_contact(phone_number)["name"] is not None):
             return serialize_profile(Profile(name=self.profile["name"], phone_number=self.profile["phone_number"], about=self.profile["about"], profile_picture=self.profile["profile_picture"]))
         else:
             return serialize_profile(Profile(name=None, phone_number=self.profile["phone_number"], about=None, profile_picture=None))
-
-    def __get_phone_number_from_name(self, name: str) -> str | None:
-        """Retrieves the phone number associated with a given name."""
-        for phone_number, contact in self.contacts.items():
-            if contact["name"] == name:
-                return phone_number
-        return None
-
-    def __get_phone_number_from_profile_name(self, name: str) -> str | None:
-        """Retrieves the phone number associated with a given profile name."""
-        for phone_number, contact in self.contacts.items():
-            if contact["profile"]["name"] is not None:
-                if contact["profile"]["name"] == name:
-                    return phone_number
-        return None
 
     @staticmethod
     def __hash_phone_number(phone_number: str):

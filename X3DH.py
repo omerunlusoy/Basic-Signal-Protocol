@@ -33,7 +33,7 @@ Date:   30-April-2025
 
 from typing import Tuple, List, Optional
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.serialization import PublicFormat, Encoding
@@ -47,7 +47,7 @@ def generate_identity_keypair() -> Tuple[X25519PrivateKey, X25519PublicKey]:
     """
     Generate a long-term X25519 identity key pair.
     Identity Key Pair (X25519) Role & significance:
-        This is your long‑term Diffie–Hellman key pair. Its public half is published in your “address book” and used by anyone initiating a session.
+        This is your long-term Diffie–Hellman key pair. Its public half is published in your “address book” and used by anyone initiating a session.
         Provides a stable anchor for authenticity: others can trust your identity.
     Lifetime:
         Rotate very infrequently—months to years. Protect its private half rigorously (HSM or encrypted storage).
@@ -147,7 +147,7 @@ class X3DH:
         """
         # Long-term identity key pair
         self.identity_private_key, self.identity_public_key = generate_identity_keypair()
-        # Ed25519 signing key pair for authenticating the signed pre-key
+        # an Ed25519 signing key-pair for authenticating the signed pre-key
         self.signing_private_key = Ed25519PrivateKey.generate()
         self.signing_public_key = self.signing_private_key.public_key()
         # Generate and sign the semi-static pre-key
@@ -178,22 +178,6 @@ class X3DH:
             'one_time_prekey_public_index': 0
         }
 
-    def load_peer_prekey_bundle(self, bundle: PreKeyBundle) -> None:
-        """
-        Load and verify a peer's pre-key bundle before initiating a handshake.
-
-        Args:
-            bundle: The PreKeyBundle published by the peer.
-
-        Raises:
-            ValueError: If the signed pre-key signature is invalid.
-        """
-        raw_prekey_bytes = bundle['signed_prekey_public'].public_bytes(Encoding.Raw, PublicFormat.Raw)
-        try:
-            bundle['signing_public_key'].verify(bundle['signed_prekey_signature'], raw_prekey_bytes)
-        except InvalidSignature as error:
-            raise ValueError("Invalid signed pre-key signature") from error
-
     def initiate_handshake(self, peer_prekey_bundle: PreKeyBundle, one_time_prekey_public_index: int = 0) -> Tuple[InitialMessage, bytes, Optional[X25519PrivateKey]]:
         """
         Act as initiator: produce an InitialMessage and derive the shared secret.
@@ -207,7 +191,7 @@ class X3DH:
         if peer_prekey_bundle is None:
             raise ValueError("Peer pre-key bundle not loaded")
 
-        # Generate ephemeral key pair for this handshake
+        # Generate an ephemeral key pair for this handshake
         ephemeral_private_key = X25519PrivateKey.generate()
         ephemeral_public_key = ephemeral_private_key.public_key()
 
@@ -293,3 +277,20 @@ class X3DH:
             [dh_signed_identity, dh_identity_ephemeral, dh_signed_ephemeral, dh_one_time_ephemeral],
             salt_material
         )
+
+    @staticmethod
+    def verify_signed_prekey_signature(bundle: PreKeyBundle) -> None:
+        """
+        Load and verify a peer's pre-key bundle before initiating a handshake.
+
+        Args:
+            bundle: The PreKeyBundle published by the peer.
+
+        Raises:
+            ValueError: If the signed pre-key signature is invalid.
+        """
+        raw_prekey_bytes = bundle['signed_prekey_public'].public_bytes(Encoding.Raw, PublicFormat.Raw)
+        try:
+            bundle['signing_public_key'].verify(bundle['signed_prekey_signature'], raw_prekey_bytes)
+        except InvalidSignature as error:
+            raise ValueError("Invalid signed pre-key signature") from error
