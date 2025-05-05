@@ -74,7 +74,7 @@ def main() -> None:
             print(f"{speaker}->Alice :", msg.decode())
             print("Alice decrypted :", rec.decode(), "\n")
 
-    print("[✓] Demo complete – all messages round-tripped successfully.")
+    print("Demo complete – all messages round-tripped successfully.")
 
 
 if __name__ == "__main__":
