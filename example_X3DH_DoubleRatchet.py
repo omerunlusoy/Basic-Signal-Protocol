@@ -27,7 +27,7 @@ def main() -> None:
 
     # Responder publishes their bundle; initiator loads and verifies it
     responder_bundle = responder.get_prekey_bundle()
-    initiator.load_peer_prekey_bundle(responder_bundle)
+    initiator.verify_signed_prekey_signature(responder_bundle)
 
     # Initiator starts handshake
     message, secret_initiator, ephemeral_private_key = initiator.initiate_handshake(responder_bundle)
@@ -64,13 +64,13 @@ def main() -> None:
 
     for speaker, msg in convo:
         if speaker == "Alice":
-            h, c, ad = alice.encrypt_message(msg)
-            rec = bob.decrypt_message(h, c, ad)
+            msg_encrypted = alice.encrypt_message(msg)
+            rec = bob.decrypt_message(msg_encrypted)
             print(f"{speaker}->Bob   :", msg.decode())
             print("Bob  decrypted :", rec.decode(), "\n")
         else:
-            h, c, ad = bob.encrypt_message(msg)
-            rec = alice.decrypt_message(h, c, ad)
+            msg_encrypted = bob.encrypt_message(msg)
+            rec = alice.decrypt_message(msg_encrypted)
             print(f"{speaker}->Alice :", msg.decode())
             print("Alice decrypted :", rec.decode(), "\n")
 

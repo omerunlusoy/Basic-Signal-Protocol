@@ -183,8 +183,7 @@ class Client:
                 initial_root_key, initial_chain_key = DoubleRatchetSession.derive_root_and_chain_keys(root_key=b"\x00" * 32, dh_shared_secret=x3dh_secret)
                 receiver_session = DoubleRatchetSession(initial_dh_private_key=self.x3dh.signed_prekey_private_key, root_key=initial_root_key, sending_chain_key=None, receiving_chain_key=initial_chain_key, initial_remote=initial_message_["initiator_ephemeral_public_key"])
 
-                sender_profile = deserialize_profile(receiver_session.decrypt_message(private_message["profile_serialized_encrypted"][0], private_message[
-                    "profile_serialized_encrypted"][1], private_message["profile_serialized_encrypted"][2]))
+                sender_profile = deserialize_profile(receiver_session.decrypt_message(private_message["profile_serialized_encrypted"]))
                 sender_phone_number = sender_profile["phone_number"]
 
                 # add to contacts if not already there
@@ -215,10 +214,9 @@ class Client:
                 if session is not None:
 
                     # decrypt the message and profile, store it in the messages dictionary
-                    message_decrypted = session.decrypt_message(private_message["message"][0], private_message["message"][1], private_message["message"][2]).decode("utf-8")
+                    message_decrypted = session.decrypt_message(private_message["message"]).decode("utf-8")
 
-                    sender_profile = deserialize_profile(session.decrypt_message(private_message["profile_serialized_encrypted"][0], private_message[
-                        "profile_serialized_encrypted"][1], private_message["profile_serialized_encrypted"][2]))
+                    sender_profile = deserialize_profile(session.decrypt_message(private_message["profile_serialized_encrypted"]))
 
                     # update the saved profile to the latest attached one
                     self.database.update_profile(sender_profile)

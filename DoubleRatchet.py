@@ -157,8 +157,10 @@ class DoubleRatchetSession:
         ciphertext = self._encrypt_with_aead(msg_key, header_bytes, associated_data, plaintext)
         return header_bytes, ciphertext, associated_data
 
-    def decrypt_message(self, header_bytes: bytes, ciphertext: bytes, associated_data: bytes = b"") -> bytes:
+    def decrypt_message(self, encrypted_tuple: tuple[bytes, bytes, bytes]) -> bytes:
         """Decrypt ciphertext using header and optional AAD."""
+
+        header_bytes, ciphertext, associated_data = encrypted_tuple
         header = RatchetHeader.deserialize(header_bytes)
 
         key_tuple = (header.public_ratchet_key, header.sending_message_number)
