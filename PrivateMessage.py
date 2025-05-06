@@ -9,7 +9,8 @@ Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
 
-from typing import TypedDict, Tuple, Any
+from typing import TypedDict, Tuple
+import pickle
 
 from InitialMessage import InitialMessage, serialize_initial_message, deserialize_initial_message
 
@@ -37,7 +38,7 @@ class PrivateMessage(TypedDict):
     timestamp: str
     profile_serialized_encrypted: Tuple[bytes, bytes, bytes] | bytes | None
 
-def serialize_private_message(message: PrivateMessage) -> dict[str, Any]:
+def serialize_private_message(message: PrivateMessage) -> bytes:
     """
     Prepare a PrivateMessage for transport/storage by converting it into a plain dict.
 
@@ -58,16 +59,16 @@ def serialize_private_message(message: PrivateMessage) -> dict[str, Any]:
         # Leave Double Ratchet ciphertext or plain text unchanged
         serialized = message["message"]
 
-    return {
+    return pickle.dumps({
         "sender": message["sender"],
         "receiver": message["receiver"],
         "message": serialized,
         "is_initial_message": message["is_initial_message"],
         "timestamp": message["timestamp"],
         "profile_serialized_encrypted": message["profile_serialized_encrypted"]
-    }
+    })
 
-def deserialize_private_message(data: dict[str, Any]) -> PrivateMessage:
+def deserialize_private_message(data: bytes) -> PrivateMessage:
     """
     Reconstruct a PrivateMessage TypedDict from a plain dict.
 
@@ -84,25 +85,26 @@ def deserialize_private_message(data: dict[str, Any]) -> PrivateMessage:
     Returns:
         A fully typed PrivateMessage object.
     """
-    if not isinstance(data, dict):
+    data_ = pickle.loads(data)
+    if not isinstance(data_, dict):
         raise TypeError("Deserialized object is not a dict")
 
     expected_keys = {"sender", "receiver", "message", "is_initial_message", "timestamp"}
-    if not expected_keys.issubset(data):
+    if not expected_keys.issubset(data_):
         raise ValueError("Deserialized dict does not match PrivateMessage structure")
 
-    if data["is_initial_message"]:
+    if data_["is_initial_message"]:
         # Deserialize the InitialMessage payload for X3DH handshake
-        msg = deserialize_initial_message(data["message"])
+        msg = deserialize_initial_message(data_["message"])
     else:
         # Use raw bytes or str for Double Ratchet messages
-        msg = data["message"]
+        msg = data_["message"]
 
     return PrivateMessage(
-        sender=data["sender"],
-        receiver=data["receiver"],
+        sender=data_["sender"],
+        receiver=data_["receiver"],
         message=msg,
-        is_initial_message=data["is_initial_message"],
-        timestamp=data["timestamp"],
-        profile_serialized_encrypted=data.get("profile_serialized_encrypted")
+        is_initial_message=data_["is_initial_message"],
+        timestamp=data_["timestamp"],
+        profile_serialized_encrypted=data_.get("profile_serialized_encrypted")
     )

@@ -3,12 +3,16 @@ TODO:
     - check cryptography.fernet (https://dev.to/dev1721/do-you-wanna-keep-your-embedded-database-encrypted-5egk)
     - check SQLite 3's adaptors and converters (https://stackoverflow.com/questions/2047814/is-it-possible-to-store-python-class-objects-in-sqlite)
     - adaptor/converter solution might not be suitable for encrypted SQLite!
+
+Author: Ömer Ünlüsoy
+Date:   5-May-2025
 """
 
 from Contact import Contact, list_contact
 from PrivateMessage import PrivateMessage
-from Profile import Profile, serialize_profile, deserialize_profile
+from Profile import Profile
 from DoubleRatchet import DoubleRatchetSession
+
 
 class ClientDatabase:
     def __init__(self, phone_number: str, password: str):
@@ -20,8 +24,11 @@ class ClientDatabase:
     def phone_number_in_contacts(self, phone_number: str) -> bool:
         return phone_number in self.contacts
 
-    def add_contact(self, name: str, phone_number: str, phone_hashed: str) -> None:
+    def add_contact(self, name: str, phone_number: str, phone_hashed: str) -> bool:
+        if self.phone_number_in_contacts(phone_number=phone_number):
+            return False
         self.contacts[phone_number] = Contact(name=name, phone_number=phone_number, profile=None, phone_hashed=phone_hashed, prekey_bundle_serialized=None, x3dh_secret=None, session=None)
+        return True
 
     def get_contact(self, phone_number: str) -> Contact | None:
         if self.phone_number_in_contacts(phone_number=phone_number):

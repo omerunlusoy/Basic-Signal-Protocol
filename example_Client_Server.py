@@ -19,6 +19,9 @@ from Client import Client
 # Toggle verbose output for debug logging in clients
 verbose_ = False
 
+# delete all accounts at the end
+delete_accounts_ = False
+
 
 def run_server():
     """
@@ -71,6 +74,9 @@ def run_bob():
     # Display Bob’s contact list at the end of the run
     bob.list_contacts()
 
+    # delete the account
+    if delete_accounts_:
+        bob.delete_account()
 
 def run_alice():
     """
@@ -106,6 +112,10 @@ def run_alice():
     alice.check_for_messages()
     alice.list_contacts()
 
+    # delete the account
+    if delete_accounts_:
+        alice.delete_account()
+
 
 def run_charlie():
     """
@@ -131,6 +141,10 @@ def run_charlie():
     charlie.send_private_message(name="Bob", message="Hello Bob!")
     time.sleep(6)  # await replies
     charlie.check_for_messages()
+
+    # delete the account
+    if delete_accounts_:
+        charlie.delete_account()
 
 
 def run_dave():
@@ -159,6 +173,10 @@ def run_dave():
     )
     time.sleep(6)
     dave.check_for_messages()
+
+    # delete the account
+    if delete_accounts_:
+        dave.delete_account()
 
 
 if __name__ == "__main__":

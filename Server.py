@@ -86,7 +86,7 @@ class Server:
         bundle["one_time_prekey_public_index"] += 1
         return bundle
 
-    def __analyze_request(self, request: tuple) -> bytes | str:
+    def __analyze_request(self, request: tuple) -> bytes | list[bytes] | str:
         """
         Dispatch a client request tuple to the appropriate handler.
 
@@ -139,6 +139,8 @@ class Server:
         elif command == "check_for_messages":
             # Client requests its queued messages
             receiver = request[1]
+            if receiver not in self.users:
+                return "Error: invalid private message!"
             return self.__fetch_my_messages(receiver)
 
         else:

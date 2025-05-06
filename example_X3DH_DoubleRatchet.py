@@ -14,6 +14,7 @@ Requirements:
 Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
+from cryptography.hazmat.primitives._serialization import Encoding, PublicFormat
 
 from X3DH import X3DH
 from DoubleRatchet import DoubleRatchetSession
@@ -40,13 +41,17 @@ def main() -> None:
     print("X3DH handshake successful. Shared secret:", secret_initiator.hex())
 
     """Run a four-message Alice ↔ Bob exchange to verify ratchet behavior."""
-    print("[Demo] Starting Double Ratchet test...\n")
+    print("Starting Double Ratchet test...\n")
 
     # derive the session keys from the X3DH shared secret
     initial_root_key, initial_chain_key = DoubleRatchetSession.derive_root_and_chain_keys(root_key=b"\x00" * 32, dh_shared_secret=secret_initiator)
 
     # create Alice as the initiator
     alice = DoubleRatchetSession(initial_dh_private_key=ephemeral_private_key, root_key=initial_root_key, sending_chain_key=initial_chain_key, receiving_chain_key=None, initial_remote=responder_bundle["identity_public_key"])
+
+    # test serialization
+    alice = alice.serialize_session()
+    alice = DoubleRatchetSession.deserialize_session(alice)
 
     # create Bob as the responder
     bob = DoubleRatchetSession(initial_dh_private_key=responder.signed_prekey_private_key, root_key=initial_root_key, sending_chain_key=None, receiving_chain_key=initial_chain_key, initial_remote=message["initiator_ephemeral_public_key"])
@@ -74,7 +79,7 @@ def main() -> None:
             print(f"{speaker}->Alice :", msg.decode())
             print("Alice decrypted :", rec.decode(), "\n")
 
-    print("Demo complete – all messages round-tripped successfully.")
+    print("All messages round-tripped successfully.")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
 
+import pickle
 from typing import TypedDict
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
@@ -35,7 +36,7 @@ class PreKeyBundle(TypedDict):
     one_time_prekey_public_index: int
 
 
-def serialize_prekey_bundle(bundle: PreKeyBundle) -> dict[str, bytes]:
+def serialize_prekey_bundle(bundle: PreKeyBundle) -> bytes:
     """
     Convert a PreKeyBundle into a dictionary of raw bytes for pickling.
 
@@ -54,7 +55,7 @@ def serialize_prekey_bundle(bundle: PreKeyBundle) -> dict[str, bytes]:
         raw = key.public_bytes(encoding=Encoding.Raw, format=PublicFormat.Raw)
         one_time_serialized.append(raw)
 
-    return {
+    return pickle.dumps({
         # Raw encoding of X25519 keys yields 32-byte values
         "identity_public_key": bundle["identity_public_key"].public_bytes(
             encoding=Encoding.Raw,
@@ -71,10 +72,10 @@ def serialize_prekey_bundle(bundle: PreKeyBundle) -> dict[str, bytes]:
         "signed_prekey_signature": bundle["signed_prekey_signature"],
         "one_time_prekey_public_list": one_time_serialized,
         "one_time_prekey_public_index": bundle["one_time_prekey_public_index"],
-    }
+    })
 
 
-def deserialize_prekey_bundle(data: dict[str, bytes]) -> PreKeyBundle:
+def deserialize_prekey_bundle(data: bytes) -> PreKeyBundle:
     """
     Reconstruct a PreKeyBundle from a dict of raw bytes.
 
@@ -82,40 +83,41 @@ def deserialize_prekey_bundle(data: dict[str, bytes]) -> PreKeyBundle:
     raw byte form, and rebuilds the one-time pre-key list.
 
     Args:
-        data: A dict typically produced by `serialize_prekey_bundle`.
+        data: A bytes typically produced by `serialize_prekey_bundle`.
 
     Raises:
-        TypeError: If `data` is not a dict.
+        TypeError: If `data_` is not a dict.
         ValueError: If 'required keys' are missing.
 
     Returns:
         A PreKeyBundle TypedDict with reconstructed key objects.
     """
-    if not isinstance(data, dict):
+    data_ = pickle.loads(data)
+    if not isinstance(data_, dict):
         raise TypeError("Deserialized object is not a dict")
 
     # Ensure required fields are present
     expected = {"identity_public_key", "signing_public_key", "signed_prekey_public", "signed_prekey_signature", "one_time_prekey_public_list", "one_time_prekey_public_index"}
-    if not expected.issubset(data):
+    if not expected.issubset(data_):
         raise ValueError("Deserialized dict does not match PreKeyBundle structure")
 
     # Deserialize each one-time pre-key from raw bytes
     one_time_deserialized: list[X25519PublicKey] = []
-    for raw in data["one_time_prekey_public_list"]:
+    for raw in data_["one_time_prekey_public_list"]:
         key_obj = X25519PublicKey.from_public_bytes(raw)
         one_time_deserialized.append(key_obj)
 
     return PreKeyBundle(
         identity_public_key=X25519PublicKey.from_public_bytes(
-            data["identity_public_key"]
+            data_["identity_public_key"]
         ),
         signing_public_key=Ed25519PublicKey.from_public_bytes(
-            data["signing_public_key"]
+            data_["signing_public_key"]
         ),
         signed_prekey_public=X25519PublicKey.from_public_bytes(
-            data["signed_prekey_public"]
+            data_["signed_prekey_public"]
         ),
-        signed_prekey_signature=data["signed_prekey_signature"],
+        signed_prekey_signature=data_["signed_prekey_signature"],
         one_time_prekey_public_list=one_time_deserialized,
-        one_time_prekey_public_index=int(data["one_time_prekey_public_index"])
+        one_time_prekey_public_index=int(data_["one_time_prekey_public_index"])
     )

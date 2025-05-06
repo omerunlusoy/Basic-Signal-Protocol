@@ -37,7 +37,7 @@ from DoubleRatchet import DoubleRatchetSession
 from PrekeyBundle import serialize_prekey_bundle, deserialize_prekey_bundle
 from PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
 from Profile import Profile, serialize_profile, deserialize_profile
-from ClientDatabase import ClientDatabase
+from ClientDatabaseSQLite import ClientDatabase
 
 
 class Client:
@@ -140,6 +140,7 @@ class Client:
         # encrypt the message and profile
         session = contact["session"]
         message_encrypted_ = session.encrypt_message(str.encode(message))
+
         profile_serialized_encrypted_ = session.encrypt_message(self.__get_serialized_profile_for_sender(phone_number_))
         serialized_private_message = serialize_private_message(
             PrivateMessage(sender=self.phone_hashed, receiver=contact["phone_hashed"], message=message_encrypted_, is_initial_message=False, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_))
@@ -148,6 +149,8 @@ class Client:
         message_encrypted_tuple_serialized = pickle.dumps(message_encrypted_tuple)
         # send it to the server
         server_respond = self.__send_to_server(message_encrypted_tuple_serialized)
+
+        self.database.update_double_ratchet_session(phone_number=phone_number_, session=session)
 
         # receive the server's response
         if self.verbose:
@@ -259,7 +262,10 @@ class Client:
         phone_hashed_ = Client.__hash_phone_number(phone_number)
 
         # create a new Contact instance and store it in contacts dict with the phone number as the key
-        self.database.add_contact(name=name, phone_number=phone_number, phone_hashed=phone_hashed_)
+        added_ = self.database.add_contact(name=name, phone_number=phone_number, phone_hashed=phone_hashed_)
+        if not added_:
+            print("Contact already exists!")
+            return
 
         # initialize an empty messages_from_phone_number list within the messages dict with the phone number as the key
         self.database.create_empty_message_list_for(phone_number)
@@ -277,6 +283,11 @@ class Client:
     def receivers_can_see_my_name(self, receivers_can_see_my_name: bool = False) -> None:
         """Toggles whether receivers can see the client's display name."""
         self.receivers_can_see_my_name = receivers_can_see_my_name
+
+    def delete_account(self) -> None:
+        """Deletes the client's account from the server."""
+        self.database.delete_database()
+        del self.profile
 
     def __initiate_handshake(self, phone_number: str):
         """Initiates the X3DH handshake with a given contact."""
