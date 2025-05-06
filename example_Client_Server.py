@@ -24,7 +24,7 @@ def run_server():
     """
     Start the Signal protocol server.
 
-    Creates and runs a Server instance that listens on localhost:12345
+    Creates and runs a Server instance that listens on localhost: 12345
     and handles incoming client connections until the process is terminated.
     """
     Server(verbose=False)
@@ -65,7 +65,7 @@ def run_bob():
     bob.send_private_message(phone_number="0003", message="How are you?")
     bob.send_private_message(phone_number="0004", message="Who is this?")
 
-    # Display Bob’s contact list at end of run
+    # Display Bob’s contact list at the end of the run
     bob.list_contacts()
 
 
@@ -76,7 +76,7 @@ def run_alice():
     - Waits for server to start.
     - Registers as phone "0001" with name "Alice".
     - Adds Bob as a contact.
-    - Sends three initial messages to Bob to initiate X3DH handshake + ratchet chain.
+    - Sends three initial messages to Bob to initiate X3DH handshake plus ratchet chain.
     - Waits for Bob’s responses.
     - Fetches and decrypts incoming messages from Bob.
     - Lists final contact state.
@@ -108,7 +108,7 @@ def run_charlie():
     """
     Simulate Charlie’s behavior: register, add Bob, send one message, then fetch replies.
 
-    - Registers as phone "0003" with name "Charlie".
+    - Registers as phone "0003" with the name "Charlie".
     - Adds Bob as a contact.
     - Sends an initial message to Bob.
     - Waits for any responses.

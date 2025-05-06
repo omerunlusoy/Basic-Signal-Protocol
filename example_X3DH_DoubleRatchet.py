@@ -48,7 +48,7 @@ def main() -> None:
     # create Alice as the initiator
     alice = DoubleRatchetSession(initial_dh_private_key=ephemeral_private_key, root_key=initial_root_key, sending_chain_key=initial_chain_key, receiving_chain_key=None, initial_remote=responder_bundle["identity_public_key"])
 
-    #create Bob as the responder
+    # create Bob as the responder
     bob = DoubleRatchetSession(initial_dh_private_key=responder.signed_prekey_private_key, root_key=initial_root_key, sending_chain_key=None, receiving_chain_key=initial_chain_key, initial_remote=message["initiator_ephemeral_public_key"])
 
     # Initial DH exchange
