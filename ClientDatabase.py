@@ -1,5 +1,8 @@
 """
-
+TODO:
+    - check cryptography.fernet (https://dev.to/dev1721/do-you-wanna-keep-your-embedded-database-encrypted-5egk)
+    - check SQLite 3's adaptors and converters (https://stackoverflow.com/questions/2047814/is-it-possible-to-store-python-class-objects-in-sqlite)
+    - adaptor/converter solution might not be suitable for encrypted SQLite!
 """
 
 from Contact import Contact, list_contact
