@@ -61,9 +61,12 @@ def run_bob():
     bob.check_for_messages()
 
     # Send messages to other contacts (including first-time and unknown)
-    bob.send_private_message(name="Charlie", message="Hello Charlie!")
-    bob.send_private_message(phone_number="0003", message="How are you?")
+    bob.send_private_message(name="Charlie", message="Hello Charlie!")      # using Charlie's profile name
+    bob.send_private_message(phone_number="0003", message="How are you?")   # using Charlie's phone number
     bob.send_private_message(phone_number="0004", message="Who is this?")
+
+    # update Charlie's name
+    bob.update_contact_name(phone_number="0003", contact_name="Charlie")
 
     # Display Bob’s contact list at the end of the run
     bob.list_contacts()
@@ -149,7 +152,7 @@ def run_dave():
         verbose=verbose_
     )
 
-    # Send a message directly using Bob's phone number key lookup
+    # Send a message directly using Bob's phone number
     dave.send_private_message(
         phone_number="0002",
         message="Hello Bob, it is Dave, save my number please."

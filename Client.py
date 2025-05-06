@@ -266,6 +266,11 @@ class Client:
         if self.verbose:
             print(f"\t Contact {name} ({phone_number}) added to contacts.")
 
+    def update_contact_name(self, phone_number: str, contact_name: str) -> None:
+        updated_ = self.database.update_name(phone_number=phone_number, contact_name=contact_name)
+        if not updated_:
+            print("Contact not found!")
+
     def list_contacts(self) -> None:
         self.database.list_contacts(self.profile["name"])
 

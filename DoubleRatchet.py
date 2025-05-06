@@ -162,7 +162,7 @@ class DoubleRatchetSession:
                 self.skipped_message_keys.pop(next(iter(self.skipped_message_keys)))
             self.skipped_message_keys[key] = msg_key
 
-    def serialize(self) -> bytes:
+    def serialize_session(self) -> bytes:
         """
         Serialize the entire session state to a JSON‐encoded bytes object.
         Byte‐values are Base64‐encoded strings.
@@ -201,7 +201,7 @@ class DoubleRatchetSession:
         return json.dumps(obj).encode('utf-8')
 
     @staticmethod
-    def deserialize(data: bytes) -> 'DoubleRatchetSession':
+    def deserialize_session(data: bytes) -> 'DoubleRatchetSession':
         """
         Reconstruct a DoubleRatchetSession from its JSON serialization.
         """

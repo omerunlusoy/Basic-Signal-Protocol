@@ -7,7 +7,7 @@ TODO:
 
 from Contact import Contact, list_contact
 from PrivateMessage import PrivateMessage
-from Profile import Profile
+from Profile import Profile, serialize_profile, deserialize_profile
 from DoubleRatchet import DoubleRatchetSession
 
 class ClientDatabase:
@@ -28,6 +28,14 @@ class ClientDatabase:
             return self.contacts[phone_number]
         else:
             return None
+
+    def update_name(self, phone_number: str, contact_name: str) -> bool:
+        """Updates the name of a given contact."""
+        if self.phone_number_in_contacts(phone_number=phone_number):
+            self.contacts[phone_number]["name"] = contact_name
+            return True
+        else:
+            return False
 
     def update_profile(self, sender_profile: Profile) -> None:
         """Updates the profile of a given contact."""
