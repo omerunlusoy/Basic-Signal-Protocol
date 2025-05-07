@@ -53,19 +53,20 @@ class Client:
     and handling session-based encrypted communication.
     """
 
+    # Class variables
+    x3dh_one_time_prekey_list_size = 10
+    server_port = 12345
+
     def __init__(self):
         self.client_profile = None
         self.database = None
-
-        # decide on the ports
-        self.server_port = 12345  # server's port
 
     def register(self, phone_number: str, password: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False, verbose: bool = False):
 
         # hash phone number for future use
         phone_hashed = Client.__hash_phone_number(phone_number)
 
-        # hasher and cipher
+        # hashers and cipher
         argon_hasher = Argon2id(password)
         aes_cipher = AES256(password)
         hmac_hasher = HMAC(password)
@@ -74,7 +75,7 @@ class Client:
         profile = Profile(name=name, phone_number=phone_number, about=about, profile_picture=profile_picture)
 
         # create a x3dh instance
-        x3dh = X3DH(N=20)
+        x3dh = X3DH(N=Client.x3dh_one_time_prekey_list_size)
         # create the client profile
         self.client_profile = ClientProfile(profile=profile, phone_hashed=phone_hashed, receivers_can_see_my_name=receivers_can_see_my_name, verbose=verbose, x3dh=x3dh)
 
@@ -178,7 +179,7 @@ class Client:
         message_encrypted_tuple = ("private_message", serialized_private_message)
         message_encrypted_tuple_serialized = pickle.dumps(message_encrypted_tuple)
         # send it to the server
-        server_respond = self.__send_to_server(message_encrypted_tuple_serialized)
+        server_respond = Client.__send_to_server(message_encrypted_tuple_serialized)
 
         self.database.update_double_ratchet_session(phone_number=phone_number_, session=session)
 
@@ -198,7 +199,7 @@ class Client:
         """
         check_for_messages_tuple = ("check_for_messages", self.client_profile["phone_hashed"])
         check_for_messages_tuple_serialized = pickle.dumps(check_for_messages_tuple)
-        server_respond = self.__send_to_server(check_for_messages_tuple_serialized)
+        server_respond = Client.__send_to_server(check_for_messages_tuple_serialized)
 
         # first check for x3dh initial_messages to create required sessions
         for message in server_respond:
@@ -345,7 +346,7 @@ class Client:
 
             # serialize the message and send it to the server
             x3dh_first_message_tuple_serialized = pickle.dumps(x3dh_first_message_tuple)
-            server_respond = self.__send_to_server(x3dh_first_message_tuple_serialized, buffer_size=2048 * 2)
+            server_respond = Client.__send_to_server(x3dh_first_message_tuple_serialized)
             if self.client_profile["verbose"]:
                 print("\t", server_respond)
 
@@ -358,28 +359,9 @@ class Client:
         """Registers the client on the server."""
         register_tuple = ("register", self.client_profile["phone_hashed"], serialize_prekey_bundle(self.client_profile["x3dh"].get_prekey_bundle()))
         register_tuple_serialized = pickle.dumps(register_tuple)
-        server_respond = self.__send_to_server(register_tuple_serialized)
+        server_respond = Client.__send_to_server(register_tuple_serialized)
         if self.client_profile["verbose"]:
             print("\t", server_respond)
-
-    def __send_to_server(self, data: bytes, buffer_size: int = 1024 * 4):
-        """Sends data to the server."""
-        # create a socket and connect to the server's port
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect(('localhost', self.server_port))
-
-        # send the passed data and receive a response from the server
-        client_socket.sendall(data)
-        response = client_socket.recv(buffer_size)
-        client_socket.close()
-
-        # deserialize the response and return
-        server_respond = pickle.loads(response)
-
-        # check if the message includes an error
-        if isinstance(server_respond, str) and "Error" in server_respond:
-            raise ValueError(server_respond)
-        return server_respond
 
     def __ask_server_for_prekey_bundle(self, phone_number: str) -> None:
         """Asks the server for a prekey bundle for a given contact."""
@@ -392,7 +374,7 @@ class Client:
         fetch_tuple_serialized = pickle.dumps(fetch_tuple)
 
         # save server response as the prekey bundle
-        prekey_bundle_serialized_ = self.__send_to_server(fetch_tuple_serialized, buffer_size=2048)
+        prekey_bundle_serialized_ = Client.__send_to_server(fetch_tuple_serialized)
         self.database.update_prekey_bundle_serialized(phone_number=phone_number, prekey_bundle_serialized=prekey_bundle_serialized_)
 
     def __get_serialized_profile_for_sender(self, phone_number: str) -> bytes:
@@ -416,6 +398,43 @@ class Client:
             return serialize_profile(Profile(name=self.client_profile["profile"]["name"], phone_number=self.client_profile["profile"]["phone_number"], about=self.client_profile["profile"]["about"], profile_picture=self.client_profile["profile"]["profile_picture"]))
         else:
             return serialize_profile(Profile(name=None, phone_number=self.client_profile["profile"]["phone_number"], about=None, profile_picture=None))
+
+    @staticmethod
+    def __send_to_server(serialized_data: bytes):
+        """Sends data to the server."""
+
+        # inner method to receive all data from the socket
+        def __recv_all(socket_, length_to_receive: int):
+            data_ = b''
+            while len(data_) < length_to_receive:
+                packet = socket_.recv(length_to_receive - len(data_))
+                if not packet:
+                    raise ConnectionError("Connection closed before receiving full data")
+                data_ += packet
+            return data_
+
+        # create a socket and connect to the server's port
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect(('localhost', Client.server_port))
+
+        # send the passed data and receive a response from the server
+        client_socket.sendall(len(serialized_data).to_bytes(4, 'big') + serialized_data)
+
+        # Read a 4-byte length prefix
+        raw_message_length = __recv_all(client_socket, 4)
+        message_length = int.from_bytes(raw_message_length, 'big')
+
+        # receive the response and deserialize it
+        response = __recv_all(client_socket, message_length)
+        server_respond = pickle.loads(response)
+
+        # check if the message includes an error
+        if isinstance(server_respond, str) and "Error" in server_respond:
+            raise ValueError(server_respond)
+
+        # close the socket
+        client_socket.close()
+        return server_respond
 
     @staticmethod
     def __hash_phone_number(phone_number: str) -> str:

@@ -30,8 +30,10 @@ def run_server():
     Creates and runs a Server instance that listens on localhost: 12345
     and handles incoming client connections until the process is terminated.
     """
-    Server(verbose=False)
     # The server loop runs indefinitely until externally terminated.
+    server = Server()
+    server.register_server(admin_username="omer", admin_password="123", verbose=False)
+    server.loop()
 
 
 def run_bob():
