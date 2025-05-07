@@ -1,8 +1,6 @@
 """
 TODO:
     - check cryptography.fernet (https://dev.to/dev1721/do-you-wanna-keep-your-embedded-database-encrypted-5egk)
-    - check SQLite 3's adaptors and converters (https://stackoverflow.com/questions/2047814/is-it-possible-to-store-python-class-objects-in-sqlite)
-    - adaptor/converter solution might not be suitable for encrypted SQLite!
 
 Author: Ömer Ünlüsoy
 Date:   5-May-2025
@@ -15,10 +13,10 @@ from DoubleRatchet import DoubleRatchetSession
 
 
 class ClientDatabase:
-    def __init__(self, phone_number: str, password: str):
+    def __init__(self):
         self.contacts: dict[str, Contact] | None = None
         self.messages: dict[str, list[PrivateMessage]] | None = None
-        self.__fetch_from_database(phone_number=phone_number, password=password)
+        self.__fetch_from_database()
 
     # Contacts functions
     def phone_number_in_contacts(self, phone_number: str) -> bool:
@@ -133,7 +131,6 @@ class ClientDatabase:
 
         Args:
             name:     Display name of the message owner (for header text).
-            messages: Mapping from sender ID to list of raw message dicts.
         """
         # If every sender’s list is empty, notify the user and return
         if not any(self.messages[s] for s in self.messages):
@@ -151,6 +148,6 @@ class ClientDatabase:
             for msg in msg_list:
                 print(f"\t\t({msg['timestamp']}): {msg['message']}")
 
-    def __fetch_from_database(self, phone_number: str, password: str):
+    def __fetch_from_database(self):
         self.contacts = {}
         self.messages = {}

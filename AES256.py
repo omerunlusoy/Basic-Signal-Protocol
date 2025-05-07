@@ -1,5 +1,8 @@
 """
-    simple AES-256 encryption in GCM mode with PBKDF2 key derivation.
+simple AES-256 encryption in GCM mode with PBKDF2 key derivation.
+
+Author: Ömer Ünlüsoy
+Date:   20-April-2025
 """
 
 import os

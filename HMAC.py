@@ -1,9 +1,12 @@
 """
-    simple HMAC hashing and verification.
-    Keyed-hash message authentication code.
-    Fast, deterministic, keyed.
-    Good for hash comparison.
-    https://docs.python.org/3/library/hmac.html
+simple HMAC hashing and verification.
+Keyed-hash message authentication code.
+Fast, deterministic, keyed.
+Good for hash comparison.
+https://docs.python.org/3/library/hmac.html
+
+Author: Ömer Ünlüsoy
+Date:   20-April-2025
 """
 
 import hmac

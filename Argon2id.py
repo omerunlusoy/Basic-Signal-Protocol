@@ -1,8 +1,11 @@
 """
-    simple Argon2id hashing and verification.
-    Slow and memory-intensive, but secure.
-    Good for password hashing and verification.
-    https://github.com/hynek/argon2_cffi
+simple Argon2id hashing and verification.
+Slow and memory-intensive, but secure.
+Good for password hashing and verification.
+https://github.com/hynek/argon2_cffi
+
+Author: Ömer Ünlüsoy
+Date:   20-April-2025
 """
 
 import argon2
@@ -75,7 +78,7 @@ class Argon2id:
         Args:
             data_hashed (str): The hashed value that needs to be verified.
             data (Union[str, bytes]): The original data which is expected to generate the hash.
-            variable_salt (Union[str, bytes]): A variable salt value that was used during hashing.
+            variable_salt (Union[str, bytes]): A variable salt value used during hashing.
 
         Returns:
             bool: Returns `True` if the provided hash matches the generated hash based on

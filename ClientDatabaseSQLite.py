@@ -5,6 +5,9 @@ Provides an SQLite-backed storage layer for encrypted contacts and private messa
 with an in-memory cache for fast lookup and mutation.  Each contact stores associated
 Signal-like state (profiles, pre-key bundles, Double Ratchet sessions), and each message
 is pickled for secure persistence.
+
+Author: Ömer Ünlüsoy
+Date:   7-May-2025
 """
 import pickle
 from datetime import datetime

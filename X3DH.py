@@ -202,7 +202,7 @@ class X3DH:
             return base64.b64encode(x).decode('ascii')
 
         # Identity keys
-        identity_priv = self.identity_private_key.private_bytes(
+        identity_private_key_bytes = self.identity_private_key.private_bytes(
             encoding=Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption()
@@ -212,7 +212,7 @@ class X3DH:
             format=PublicFormat.Raw
         )
         # Signing keys
-        signing_priv = self.signing_private_key.private_bytes(
+        signing_private_key_bytes = self.signing_private_key.private_bytes(
             encoding=Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption()
@@ -222,7 +222,7 @@ class X3DH:
             format=PublicFormat.Raw
         )
         # Signed pre-key
-        spk_priv = self.signed_prekey_private_key.private_bytes(
+        signed_prekey_private_key_bytes = self.signed_prekey_private_key.private_bytes(
             encoding=Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption()
@@ -233,7 +233,7 @@ class X3DH:
         )
         signature = self.signed_prekey_signature
         # One-time prekeys
-        ot_priv_list = [
+        one_time_prekey_private_bytes_list = [
             key.private_bytes(
                 encoding=Encoding.Raw,
                 format=serialization.PrivateFormat.Raw,
@@ -249,14 +249,14 @@ class X3DH:
         ]
 
         data: Dict[str, Any] = {
-            'identity_private_key': b64(identity_priv),
+            'identity_private_key': b64(identity_private_key_bytes),
             'identity_public_key': b64(identity_pub),
-            'signing_private_key': b64(signing_priv),
+            'signing_private_key': b64(signing_private_key_bytes),
             'signing_public_key': b64(signing_pub),
-            'signed_prekey_private_key': b64(spk_priv),
+            'signed_prekey_private_key': b64(signed_prekey_private_key_bytes),
             'signed_prekey_public_key': b64(spk_pub),
             'signed_prekey_signature': b64(signature),
-            'one_time_prekey_private_list': [b64(p) if p is not None else None for p in ot_priv_list],
+            'one_time_prekey_private_list': [b64(p) if p is not None else None for p in one_time_prekey_private_bytes_list],
             'one_time_prekey_public_list': [b64(p) for p in ot_pub_list],
             'N': self.N
         }

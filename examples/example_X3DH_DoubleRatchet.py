@@ -2,7 +2,7 @@
 Demo for performing an X3DH handshake and verifying Double Ratchet message exchange.
 
 This script:
-  1. Performs an X3DH key agreement between two parties (initiator & responder),
+  1. Performs an X3DH key agreement between two parties (initiator and responder),
      verifying that both derive the same shared secret.
   2. Uses that shared secret to initialize a Double Ratchet session for Alice ↔ Bob,
      then runs a four-message back-and-forth to confirm encryption/decryption works.
@@ -14,7 +14,6 @@ Requirements:
 Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
-from cryptography.hazmat.primitives._serialization import Encoding, PublicFormat
 
 from X3DH import X3DH
 from DoubleRatchet import DoubleRatchetSession
