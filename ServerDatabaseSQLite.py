@@ -20,10 +20,9 @@ class ServerDatabase:
     In-memory caches mirror the tables for fast operations.
     """
 
-    def __init__(self, db_name: str, admin_password_hashed: str, aes_cipher: AES256, verbose: bool = False):
+    def __init__(self, database_dir: str, db_name: str, admin_password_hashed: str, aes_cipher: AES256, verbose: bool = False):
 
         # create the directory (if not exist)
-        database_dir = "databases/"
         Path(database_dir).mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(database_dir + db_name + ".db")
         self.conn.row_factory = sqlite3.Row
@@ -91,41 +90,79 @@ class ServerDatabase:
     def phone_hashed_in_users(self, phone_hashed: str) -> bool:
         return phone_hashed in self.users
 
-    def save_user_prekey_bundle_serialized(self, phone_hashed: str, prekey_bundle_serialized: bytes) -> None:
+    def save_user_prekey_bundle_serialized(self, phone_hashed: str, prekey_bundle_serialized: bytes) -> bool:
         enc = self.aes_cipher.encrypt(prekey_bundle_serialized)
-        self.conn.execute(
+        cursor = self.conn.execute(
             "INSERT OR REPLACE INTO users (phone_hashed, prekey_bundle) VALUES (?, ?)",
             (phone_hashed, enc),
         )
-        self.conn.commit()
-        # cache and message box
-        self.users[phone_hashed] = prekey_bundle_serialized
-        self.messages.setdefault(phone_hashed, [])
-        if self.verbose:
-            print(f"Saved bundle for {phone_hashed}")
+        # check how many rows were affected
+        success = cursor.rowcount == 1
+
+        # cache and message box regardless of DB success:
+        if success:
+            self.users[phone_hashed] = prekey_bundle_serialized
+            self.messages.setdefault(phone_hashed, [])
+            if self.verbose:
+                print(f"Saved bundle for {phone_hashed}")
+        else:
+            if self.verbose:
+                print(f"No row was inserted/replaced for {phone_hashed}")
+        return success
+
+    def delete_account(self, phone_hashed: str) -> bool:
+        """
+        Delete a user's prekey bundle and associated in-memory caches by phone_hashed.
+        Returns True if a row was deleted, False otherwise or on error.
+        """
+        try:
+            cursor = self.conn.execute(
+                "DELETE FROM users WHERE phone_hashed = ?;",
+                (phone_hashed,)
+            )
+            self.conn.commit()
+        except sqlite3.Error:
+            return False
+
+        # Check if a row was actually deleted
+        if cursor.rowcount == 0:
+            return False
+
+        # Remove from in-memory caches
+        self.users.pop(phone_hashed, None)
+        self.messages.pop(phone_hashed, None)
+        return True
 
     def fetch_user_prekey_bundle_serialized(self, phone_hashed: str) -> Optional[bytes]:
         bundle = self.users.get(phone_hashed)
         return bundle
 
-    def save_message_serialized(self, receiver: str, message_serialized: bytes) -> None:
+    def save_message_serialized(self, receiver: str, message_serialized: bytes) -> bool:
         enc = self.aes_cipher.encrypt(message_serialized)
-        self.conn.execute(
+        cursor = self.conn.execute(
             "INSERT INTO messages (receiver_hashed, message_blob) VALUES (?, ?)",
             (receiver, enc),
         )
         self.conn.commit()
-        self.messages.setdefault(receiver, []).append(message_serialized)
-        if self.verbose:
-            print(f"Saved message for {receiver}")
+        # check success
+        success = (cursor.rowcount == 1)
+        # update in-memory cache only on success
+        if success:
+            self.messages.setdefault(receiver, []).append(message_serialized)
+            if self.verbose:
+                print(f"Saved message for {receiver}")
+        else:
+            if self.verbose:
+                print(f"No row inserted for {receiver}")
+        return success
 
     def initialize_message_box(self, receiver_phone_hashed: str) -> None:
         # ensure both DB row and in-memory list
         if receiver_phone_hashed not in self.messages:
             self.messages[receiver_phone_hashed] = []
 
-    def fetch_receiver_messages_serialized(self, receiver_phone_hashed: str) -> List[bytes]:
-        msgs = list(self.messages.get(receiver_phone_hashed, []))
+    def fetch_receiver_messages_serialized(self, receiver_phone_hashed: str) -> List[bytes] | None:
+        msgs = self.messages.get(receiver_phone_hashed)
         # delete from DB
         self.conn.execute(
             "DELETE FROM messages WHERE receiver_hashed = ?", (receiver_phone_hashed,)

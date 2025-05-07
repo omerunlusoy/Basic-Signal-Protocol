@@ -22,10 +22,12 @@ Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
 
+import os
 import socket
 import pickle
 from datetime import datetime  # to get timestamp
 from tzlocal import get_localzone  # timezone information for timestamp
+from typing import List
 
 from AES256 import AES256
 from Argon2id import Argon2id
@@ -34,6 +36,7 @@ from SHA256 import SHA256
 from X3DH import X3DH
 from DoubleRatchet import DoubleRatchetSession
 
+from DataClasses import Contact
 from DataClasses.PrekeyBundle import serialize_prekey_bundle, deserialize_prekey_bundle
 from DataClasses.PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
 from DataClasses.Profile import Profile, serialize_profile, deserialize_profile
@@ -56,12 +59,13 @@ class Client:
     # Class variables
     x3dh_one_time_prekey_list_size = 10
     server_port = 12345
+    database_dir = "databases/"
 
     def __init__(self):
         self.client_profile = None
         self.database = None
 
-    def register(self, phone_number: str, password: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False, verbose: bool = False):
+    def register(self, phone_number: str, password: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False, verbose: bool = False) -> bool:
 
         # hash phone number for future use
         phone_hashed = Client.__hash_phone_number(phone_number)
@@ -70,6 +74,12 @@ class Client:
         argon_hasher = Argon2id(password)
         aes_cipher = AES256(password)
         hmac_hasher = HMAC(password)
+
+        # check if the database already exists
+        if os.path.exists(Client.database_dir + f"{phone_hashed}.db"):
+            if self.client_profile["verbose"]:
+                print(f"\t Account {self.client_profile['profile']['name']} ({self.client_profile['profile']['phone_number']}) already exists.")
+            return False
 
         # create a profile for the client profile
         profile = Profile(name=name, phone_number=phone_number, about=about, profile_picture=profile_picture)
@@ -83,7 +93,7 @@ class Client:
 
         # create a client database instance
         password_hashed = argon_hasher.hash(password, variable_salt=password)
-        self.database = ClientDatabase(phone_number_hashed=phone_hashed, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher)
+        self.database = ClientDatabase(database_dir=Client.database_dir, phone_number_hashed=phone_hashed, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher)
         self.database.initialize_database_schema()
 
         # save the client profile
@@ -93,9 +103,9 @@ class Client:
             print(f"\t Account {self.client_profile["profile"]["name"]} ({self.client_profile["profile"]["phone_number"]}) is created.")
 
         # register the client on server
-        self.__register_on_server()
+        return self.__register_on_server()
 
-    def login(self, phone_number: str, password: str):
+    def login(self, phone_number: str, password: str) -> bool:
         # hash phone number for future use
         phone_hashed = Client.__hash_phone_number(phone_number)
 
@@ -104,18 +114,21 @@ class Client:
         aes_cipher = AES256(password)
         hmac_hasher = HMAC(password)
 
-        self.database = ClientDatabase(phone_number_hashed=phone_hashed, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher)
-        self.database.load_from_database()
+        self.database = ClientDatabase(database_dir=Client.database_dir, phone_number_hashed=phone_hashed, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher)
+        success = self.database.load_from_database()
         client_profile, password_hashed = self.database.get_client_profile()
+        if not success or client_profile is None:
+            return False
         verify_login_ = argon_hasher.verify(data_hashed=password_hashed, data=password, variable_salt=password)
         if not verify_login_:
             print("Incorrect password!")
-            return
+            return False
         else:
             aes_cipher = AES256(password)
             self.client_profile = deserialize_client_profile(aes_cipher.decrypt(client_profile))
+            return True
 
-    def send_private_message(self, name: str = None, phone_number: str = None, message: str = None) -> None:
+    def send_private_message(self, name: str = None, phone_number: str = None, message: str = None) -> bool:
         """
         Sends a private encrypted message to a contact specified by name or phone number.
 
@@ -179,15 +192,17 @@ class Client:
         message_encrypted_tuple = ("private_message", serialized_private_message)
         message_encrypted_tuple_serialized = pickle.dumps(message_encrypted_tuple)
         # send it to the server
-        server_respond = Client.__send_to_server(message_encrypted_tuple_serialized)
+        server_respond, success = Client.__send_to_server(message_encrypted_tuple_serialized)
 
+        # update the session
         self.database.update_double_ratchet_session(phone_number=phone_number_, session=session)
 
         # receive the server's response
         if self.client_profile["verbose"]:
             print("\t", server_respond)
+        return success
 
-    def check_for_messages(self):
+    def check_for_messages(self, list_messages: bool = False) -> list[PrivateMessage]:
         """
         Processes incoming messages from the server, including setting up encrypted sessions via X3DH
         if initial messages are found, and decrypting non-initial messages. It updates contact and profile
@@ -199,7 +214,11 @@ class Client:
         """
         check_for_messages_tuple = ("check_for_messages", self.client_profile["phone_hashed"])
         check_for_messages_tuple_serialized = pickle.dumps(check_for_messages_tuple)
-        server_respond = Client.__send_to_server(check_for_messages_tuple_serialized)
+        server_respond, success = Client.__send_to_server(check_for_messages_tuple_serialized)
+
+        # check if the return is valid
+        if not success:
+            raise ValueError("Server did not respond! Check your internet connection and try again.")
 
         # first check for x3dh initial_messages to create required sessions
         for message in server_respond:
@@ -230,6 +249,9 @@ class Client:
                 # update the x3dh secret and session
                 self.database.update_x3dh_secret(phone_number=sender_phone_number, x3dh_secret=x3dh_secret)
                 self.database.update_double_ratchet_session(phone_number=sender_phone_number, session=receiver_session)
+
+        # add messages to the list
+        private_messages = []
 
         # check for non-initial messages and store them
         # at this point; the client has the sender's phone number, session, and profile (name as well if the sender is a contact)
@@ -271,11 +293,13 @@ class Client:
 
                     # add the message to the messages list
                     self.database.add_message_to(sender_phone_number, private_message)
+                    private_messages.append(private_message)
                 else:
                     raise ValueError("Session not found!")
-
         # list all the messages
-        self.database.list_all_messages(self.client_profile["profile"]["name"])
+        if list_messages:
+            self.database.list_all_messages(self.client_profile["profile"]["name"])
+        return private_messages
 
     def add_contact(self, phone_number: str, name: str = None) -> None:
         """
@@ -303,22 +327,67 @@ class Client:
         if self.client_profile["verbose"]:
             print(f"\t Contact {name} ({phone_number}) added to contacts.")
 
-    def update_contact_name(self, phone_number: str, contact_name: str) -> None:
+    def update_contact_name(self, phone_number: str, contact_name: str) -> bool:
         updated_ = self.database.update_name(phone_number=phone_number, contact_name=contact_name)
-        if not updated_:
+        if not updated_ and self.client_profile["verbose"]:
             print("Contact not found!")
+        return updated_
 
-    def list_contacts(self) -> None:
-        self.database.list_contacts(self.client_profile["profile"]["name"])
+    def delete_contact(self, phone_number: str) -> bool:
+        return self.database.delete_contact(phone_number=phone_number)
 
-    def receivers_can_see_my_name(self, receivers_can_see_my_name: bool = False) -> None:
+    def list_contacts(self, list_contacts: bool = True) -> List[Contact]:
+        return self.database.list_contacts(self.client_profile["profile"]["name"], list_contacts)
+
+    def update_receivers_can_see_my_name(self, receivers_can_see_my_name: bool, password: str) -> bool:
         """Toggles whether receivers can see the client's display name."""
         self.client_profile["receivers_can_see_my_name"] = receivers_can_see_my_name
+        return self.update_client_profile(password)
+
+    def update_verbose(self, verbose: bool, password: str) -> bool:
+        """Toggles whether receivers can see the client's display name."""
+        self.client_profile["verbose"] = verbose
+        return self.update_client_profile(password)
+
+    def update_profile_name(self, profile_name: str, password: str) -> bool:
+        """Updates the client's profile name."""
+        self.client_profile["profile"]["name"] = profile_name
+        return self.update_client_profile(password)
+
+    def update_about(self, about: str, password: str) -> bool:
+        """Updates the client's profile picture."""
+        self.client_profile["profile"]["about"] = about
+        return self.update_client_profile(password)
+
+    def update_profile_picture(self, profile_picture: str, password: str) -> bool:
+        """Updates the client's profile picture."""
+        self.client_profile["profile"]["profile_picture"] = profile_picture
+        return self.update_client_profile(password)
+
+    def update_client_profile(self, password: str) -> bool:
+        """Updates the client's profile with the new information provided by the user."""
+
+        # hashers and cipher
+        argon_hasher = Argon2id(password)
+        aes_cipher = AES256(password)
+
+        # delete the table and recreate it
+        success1 = self.database.delete_client_profile_table()
+        client_profile_encrypted = aes_cipher.encrypt(serialize_client_profile(self.client_profile))
+        password_hashed = argon_hasher.hash(password, variable_salt=password)
+        success2 = self.database.save_client_profile(client_profile_encrypted, password_hashed)
+        if not (success1 and success2):
+            if self.client_profile["verbose"]:
+                print("Failed to update!")
+            return False
+        return True
 
     def delete_account(self) -> None:
         """Deletes the client's account from the server."""
+        self.__delete_on_server()
         self.database.delete_database()
-        del self.client_profile["profile"]
+        del self.client_profile
+        del self.database
 
     def __initiate_handshake(self, phone_number: str):
         """Initiates the X3DH handshake with a given contact."""
@@ -346,7 +415,7 @@ class Client:
 
             # serialize the message and send it to the server
             x3dh_first_message_tuple_serialized = pickle.dumps(x3dh_first_message_tuple)
-            server_respond = Client.__send_to_server(x3dh_first_message_tuple_serialized)
+            server_respond, _ = Client.__send_to_server(x3dh_first_message_tuple_serialized)
             if self.client_profile["verbose"]:
                 print("\t", server_respond)
 
@@ -355,13 +424,23 @@ class Client:
         else:
             raise ValueError("Contact not found!")
 
-    def __register_on_server(self) -> None:
+    def __register_on_server(self) -> bool:
         """Registers the client on the server."""
         register_tuple = ("register", self.client_profile["phone_hashed"], serialize_prekey_bundle(self.client_profile["x3dh"].get_prekey_bundle()))
         register_tuple_serialized = pickle.dumps(register_tuple)
-        server_respond = Client.__send_to_server(register_tuple_serialized)
+        server_respond, success = Client.__send_to_server(register_tuple_serialized)
         if self.client_profile["verbose"]:
             print("\t", server_respond)
+        return success
+
+    def __delete_on_server(self) -> bool:
+        """Deletes the client on the server."""
+        delete_tuple = ("delete", self.client_profile["phone_hashed"])
+        delete_tuple_serialized = pickle.dumps(delete_tuple)
+        server_respond, success = Client.__send_to_server(delete_tuple_serialized)
+        if self.client_profile["verbose"]:
+            print("\t", server_respond)
+        return success
 
     def __ask_server_for_prekey_bundle(self, phone_number: str) -> None:
         """Asks the server for a prekey bundle for a given contact."""
@@ -374,7 +453,9 @@ class Client:
         fetch_tuple_serialized = pickle.dumps(fetch_tuple)
 
         # save server response as the prekey bundle
-        prekey_bundle_serialized_ = Client.__send_to_server(fetch_tuple_serialized)
+        prekey_bundle_serialized_, success = Client.__send_to_server(fetch_tuple_serialized)
+        if not success:
+            raise ValueError("Handshake failed! No prekey bundle is returned from the server.")
         self.database.update_prekey_bundle_serialized(phone_number=phone_number, prekey_bundle_serialized=prekey_bundle_serialized_)
 
     def __get_serialized_profile_for_sender(self, phone_number: str) -> bytes:
@@ -424,6 +505,10 @@ class Client:
         raw_message_length = __recv_all(client_socket, 4)
         message_length = int.from_bytes(raw_message_length, 'big')
 
+        # receive success
+        raw_success = __recv_all(client_socket, 4)
+        success = bool.from_bytes(raw_success, 'big')
+
         # receive the response and deserialize it
         response = __recv_all(client_socket, message_length)
         server_respond = pickle.loads(response)
@@ -434,7 +519,7 @@ class Client:
 
         # close the socket
         client_socket.close()
-        return server_respond
+        return server_respond, success
 
     @staticmethod
     def __hash_phone_number(phone_number: str) -> str:

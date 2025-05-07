@@ -22,6 +22,12 @@ verbose_ = False
 # delete all accounts at the end
 delete_accounts_ = False
 
+# delete server at the end
+delete_server_ = False
+
+# list messages after checking
+list_messages_ = True
+
 
 def run_server():
     """
@@ -56,7 +62,7 @@ def run_bob():
     bob.add_contact(phone_number="0001", name="Alice")
 
     time.sleep(3)  # wait for Alice’s initial handshake
-    bob.check_for_messages()
+    bob.check_for_messages(list_messages_)
 
     # Send a series of encrypted replies to Alice
     bob.send_private_message(name="Alice", message="Hello Alice!")
@@ -64,7 +70,7 @@ def run_bob():
     bob.send_private_message(name="Alice", message="Glad to see it works.")
 
     time.sleep(5)  # give Alice time to fetch replies
-    bob.check_for_messages()
+    bob.check_for_messages(list_messages_)
 
     # Send messages to other contacts (including first-time and unknown)
     bob.send_private_message(name="Charlie", message="Hello Charlie!")      # using Charlie's profile name
@@ -114,7 +120,7 @@ def run_alice():
     alice.send_private_message(name="Bob", message="I am just testing Signal.")
 
     time.sleep(5)  # allow Bob to process and reply
-    alice.check_for_messages()
+    alice.check_for_messages(list_messages_)
     alice.list_contacts()
 
     # delete the account
@@ -147,7 +153,7 @@ def run_charlie():
     # Send a single message to Bob
     charlie.send_private_message(name="Bob", message="Hello Bob!")
     time.sleep(6)  # await replies
-    charlie.check_for_messages()
+    charlie.check_for_messages(list_messages_)
 
     # delete the account
     if delete_accounts_:
@@ -181,36 +187,64 @@ def run_dave():
         message="Hello Bob, it is Dave, save my number please."
     )
     time.sleep(6)
-    # dave.check_for_messages()
+    # dave.check_for_messages(list_messages_)
 
     # delete the account
     if delete_accounts_:
         dave.delete_account()
 
 
+def main():
+    # list to keep track of all processes
+    processes = []
+
+    try:
+        # 1) Start the server
+        p_server = multiprocessing.Process(target=run_server, name="Server")
+        p_server.start()
+        processes.append(p_server)
+
+        # 2) Kick off all four clients
+        for fn, name in [(run_alice, "Alice"),
+                         (run_bob, "Bob"),
+                         (run_charlie, "Charlie"),
+                         (run_dave, "Dave")]:
+            p = multiprocessing.Process(target=fn, name=name)
+            p.start()
+            processes.append(p)
+
+        # 3) Wait for clients to finish, but don’t block forever
+        for p in processes[1:]:   # skip server
+            # you can choose an appropriate timeout (seconds)
+            p.join(timeout=60)
+            if p.is_alive():
+                print(f"{p.name} didn’t exit in time, terminating…")
+                p.terminate()
+                p.join()
+
+        # 4) All clients done—now shutdown the server
+        print("\nAll clients finished; shutting down server…")
+        p_server.terminate()
+        p_server.join(timeout=5)
+        if p_server.is_alive():
+            print("Server still alive, killing it")
+            p_server.kill()
+            p_server.join()
+
+        if delete_server_:
+            Server().delete_server(admin_username="omer")
+
+    except KeyboardInterrupt:
+        # if you hit Ctrl-C, this will let you fall through to finally
+        print("Interrupted by user; cleaning up…")
+    finally:
+        # this is *guaranteed* to run once main() exits the try block
+        for p in processes:
+            if p.is_alive():
+                print(f"Terminating {p.name}")
+                p.terminate()
+                p.join()
+
+
 if __name__ == "__main__":
-    # Launch server and client processes in parallel
-    p_server = multiprocessing.Process(target=run_server, name="Server")
-    p_alice = multiprocessing.Process(target=run_alice, name="Alice")
-    p_bob = multiprocessing.Process(target=run_bob, name="Bob")
-    p_charlie = multiprocessing.Process(target=run_charlie, name="Charlie")
-    p_dave = multiprocessing.Process(target=run_dave, name="Dave")
-
-    # Start all processes
-    p_server.start()
-    p_alice.start()
-    p_bob.start()
-    p_charlie.start()
-    p_dave.start()
-
-    # Wait for clients to finish their interactions
-    p_alice.join()
-    p_bob.join()
-    p_charlie.join()
-    p_dave.join()
-
-    # Terminate the server process
-    print("\nProcess 0: Server")
-    print("\tTerminating server")
-    p_server.terminate()
-    p_server.join()
+    main()

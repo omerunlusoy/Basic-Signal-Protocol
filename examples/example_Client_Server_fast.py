@@ -20,7 +20,13 @@ from Client import Client
 verbose_ = False
 
 # delete all accounts at the end
-delete_accounts_ = False
+delete_accounts_ = True
+
+# delete server at the end
+delete_server_ = True
+
+# list messages after checking
+list_messages_ = True
 
 wait_ = 0.03
 
@@ -99,7 +105,7 @@ def run_clients():
     )
     time.sleep(wait_)
     # Bob check messages
-    bob.check_for_messages()
+    bob.check_for_messages(list_messages_)
 
     time.sleep(wait_)
     # Send a series of encrypted replies to Alice
@@ -122,16 +128,16 @@ def run_clients():
 
     time.sleep(wait_)
     # Alice check messages
-    alice.check_for_messages()
+    alice.check_for_messages(list_messages_)
     alice.list_contacts()
 
     time.sleep(wait_)
     # Charlie check messages
-    charlie.check_for_messages()
+    charlie.check_for_messages(list_messages_)
 
     time.sleep(wait_)
     # Dave check messages
-    dave.check_for_messages()
+    dave.check_for_messages(list_messages_)
 
     # delete accounts
     if delete_accounts_:
@@ -158,3 +164,6 @@ if __name__ == "__main__":
     print("\tTerminating server")
     p_server.terminate()
     p_server.join()
+
+    if delete_server_:
+        Server().delete_server(admin_username="omer")

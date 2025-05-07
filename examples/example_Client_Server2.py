@@ -20,7 +20,13 @@ from Client import Client
 verbose_ = False
 
 # delete all accounts at the end
-delete_accounts_ = False
+delete_accounts_ = True
+
+# delete server at the end
+delete_server_ = True
+
+# list messages after checking
+list_messages_ = True
 
 
 def run_server():
@@ -55,7 +61,7 @@ def run_bob():
     bob.login(phone_number="0002", password="1234")
 
     time.sleep(3)  # wait for Alice’s initial handshake
-    bob.check_for_messages()
+    bob.check_for_messages(list_messages_)
 
     # Send a series of encrypted replies to Alice
     bob.send_private_message(name="Alice", message="It is been a while...")
@@ -65,7 +71,7 @@ def run_bob():
     bob.update_contact_name(phone_number="0004", contact_name="Dave")
 
     time.sleep(5)  # give Alice time to fetch replies
-    bob.check_for_messages()
+    bob.check_for_messages(list_messages_)
 
     # Send messages to other contacts (including first-time and unknown)
     bob.send_private_message(name="Charlie", message="Whats up Charlie!")      # using Charlie's profile name
@@ -102,7 +108,7 @@ def run_alice():
     alice.send_private_message(name="Bob", message="Sup Bob :)")
 
     time.sleep(5)  # allow Bob to process and reply
-    alice.check_for_messages()
+    alice.check_for_messages(list_messages_)
     alice.list_contacts()
 
     # delete the account
@@ -128,7 +134,7 @@ def run_charlie():
     # Send a single message to Bob
     charlie.send_private_message(name="Bob", message="Hello Bob! It is Charlie.")
     time.sleep(6)  # await replies
-    charlie.check_for_messages()
+    charlie.check_for_messages(list_messages_)
 
     # delete the account
     if delete_accounts_:
@@ -156,7 +162,7 @@ def run_dave():
         message="Hello Bob."
     )
     time.sleep(6)
-    dave.check_for_messages()
+    dave.check_for_messages(list_messages_)
 
     # delete the account
     if delete_accounts_:
@@ -218,3 +224,6 @@ if __name__ == "__main__":
     print("\tTerminating server")
     p_server.terminate()
     p_server.join()
+
+    if delete_server_:
+        Server().delete_server(admin_username="omer")

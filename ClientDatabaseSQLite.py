@@ -9,11 +9,13 @@ is pickled for secure persistence.
 Author: Ömer Ünlüsoy
 Date:   7-May-2025
 """
+
+import os
 import pickle
 from datetime import datetime
 from pathlib import Path
 import sqlite3
-from typing import Optional, Tuple
+from typing import Tuple
 
 from AES256 import AES256
 from DataClasses.Contact import Contact, list_contact
@@ -35,7 +37,7 @@ class ClientDatabase:
         messages (dict[str, list[PrivateMessage]]): In-memory cache of message lists per contact.
     """
 
-    def __init__(self, phone_number_hashed: str, aes_cipher: AES256, hmac_hasher: HMAC):
+    def __init__(self, database_dir: str, phone_number_hashed: str, aes_cipher: AES256, hmac_hasher: HMAC):
         """
         Initializes an instance of the class for handling encrypted message and contact storage
         on a local SQLite database. During initialization, it ensures the database directory is
@@ -50,11 +52,10 @@ class ClientDatabase:
             hmac_hasher: The HMAC hasher instance used for hashing sensitive data.
         """
         # create directory
-        self.database_dir = "databases/"
-        Path(self.database_dir).mkdir(parents=True, exist_ok=True)
+        Path(database_dir).mkdir(parents=True, exist_ok=True)
 
         # database path
-        self.database_path = self.database_dir + f"{phone_number_hashed}.db"
+        self.database_path = database_dir + f"{phone_number_hashed}.db"
         self.database_connection = sqlite3.connect(self.database_path)
         self.database_connection.row_factory = sqlite3.Row
 
@@ -101,7 +102,18 @@ class ClientDatabase:
         self.database_connection.commit()
         return True
 
-    def get_client_profile(self) -> Optional[Tuple[bytes, str]]:
+    def delete_client_profile_table(self) -> bool:
+        """
+        Drop the client_profile table if it exists. Returns True on success.
+        """
+        try:
+            self.database_connection.execute("DROP TABLE IF EXISTS client_profile;")
+            self.database_connection.commit()
+            return True
+        except sqlite3.Error:
+            return False
+
+    def get_client_profile(self) -> Tuple[bytes, str] | Tuple[None, None]:
         """
         Fetch the stored client_profile if it exists.
         Returns a tuple (profile_encrypted, password_hashed),
@@ -116,7 +128,7 @@ class ClientDatabase:
                AND name='client_profile'
         """)
         if not res.fetchone():
-            return None
+            return None, None
 
         # Fetch the first (and only) row
         res = self.database_connection.execute("""
@@ -156,11 +168,28 @@ class ClientDatabase:
         )""")
         self.database_connection.commit()
 
-    def load_from_database(self) -> None:
+    def load_from_database(self) -> bool:
         """
         Load all persisted contacts and messages into the in-memory caches.
         """
         cursor = self.database_connection.cursor()
+
+        # check for table existence
+        res1 = self.database_connection.execute("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            AND name = 'contacts'
+        """)
+        res2 = self.database_connection.execute("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            AND name = 'messages'
+        """)
+        if not (res1.fetchone() and res2.fetchone()):
+            # table already exists → do nothing
+            return False
 
         # Load contacts
         for row in cursor.execute("SELECT * FROM contacts"):
@@ -191,21 +220,31 @@ class ClientDatabase:
         # Ensure every contact has a message list
         for key in self.contacts:
             self.messages.setdefault(key, [])
+        return True
 
-    def delete_database(self) -> None:
+    def delete_database(self) -> bool:
         """
         Drop the 'messages' and 'contacts' tables if they exist,
         effectively resetting the database schema.
         """
         cursor = self.database_connection.cursor()
+
         # Turn off FK checks so we can drop contacts even if messages refer to it
         cursor.execute("PRAGMA foreign_keys = OFF;")
+
         # Drop in dependency order: messages first, then contacts
-        cursor.execute("DROP TABLE IF EXISTS messages;")
-        cursor.execute("DROP TABLE IF EXISTS contacts;")
-        # Re-enable FK checks
-        cursor.execute("PRAGMA foreign_keys = ON;")
-        self.database_connection.commit()
+        try:
+            self.database_connection.execute("DROP TABLE IF EXISTS client_profile;")
+            self.database_connection.execute("DROP TABLE IF EXISTS messages;")
+            self.database_connection.execute("DROP TABLE IF EXISTS contacts;")
+            cursor.execute("PRAGMA foreign_keys = ON;")
+            self.database_connection.commit()
+
+            if os.path.exists(self.database_path):
+                os.remove(self.database_path)
+            return True
+        except sqlite3.Error or OSError:
+            return False
 
     # contacts' operations
     def phone_number_in_contacts(self, phone_number: str) -> bool:
@@ -233,6 +272,29 @@ class ClientDatabase:
             session=None
         )
         self.contacts[phone_number] = contact
+        return True
+
+    def delete_contact(self, phone_number: str) -> bool:
+        """
+        Delete a contact (and its related message cache) by phone_number.
+        Returns True if a row was deleted, False otherwise or on error.
+        """
+        try:
+            cursor = self.database_connection.execute(
+                "DELETE FROM contacts WHERE phone_number = ?;",
+                (phone_number,)
+            )
+            self.database_connection.commit()
+        except sqlite3.Error:
+            return False
+
+        # Check if a row was actually deleted
+        if cursor.rowcount == 0:
+            return False
+
+        # Remove from the in-memory cache (do not remove the messages)
+        self.contacts.pop(phone_number, None)
+        # self.messages.pop(phone_number, None)
         return True
 
     def get_contact(self, phone_number: str) -> Contact | None:
@@ -319,14 +381,21 @@ class ClientDatabase:
                 return ph
         return None
 
-    def list_contacts(self, profile_name: str) -> None:
+    def list_contacts(self, profile_name: str, print_: bool) -> list[Contact]:
         """Print all contacts for the user."""
+        # check if there is any contact
         if not self.contacts:
-            print(f"\n{profile_name} has no contacts.")
-            return
+            if print_:
+                print(f"\n{profile_name} has no contacts.")
+            return []
+
         print(f"\n{profile_name}'s contacts:")
+        contacts = []
         for contact in self.contacts.values():
-            list_contact(contact)
+            contacts.append(contact)
+            if print_:
+                list_contact(contact)
+        return contacts
 
     # messages methods
     def create_empty_message_list_for(self, phone_number: str) -> None:
