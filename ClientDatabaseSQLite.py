@@ -12,10 +12,13 @@ from pathlib import Path
 import sqlite3
 from typing import Optional, Tuple
 
+from AES256 import AES256
 from DataClasses.Contact import Contact, list_contact
 from DataClasses.PrivateMessage import PrivateMessage
 from DataClasses.Profile import Profile, serialize_profile, deserialize_profile
 from DoubleRatchet import DoubleRatchetSession
+from HMAC import HMAC
+from SHA256 import SHA256
 
 
 class ClientDatabase:
@@ -29,7 +32,7 @@ class ClientDatabase:
         messages (dict[str, list[PrivateMessage]]): In-memory cache of message lists per contact.
     """
 
-    def __init__(self, phone_number: str, password: str):
+    def __init__(self, phone_number_hashed: str, aes_cipher: AES256, hmac_hasher: HMAC):
         """
         Initialize or open the SQLite database and load all data into memory.
 
@@ -41,14 +44,18 @@ class ClientDatabase:
         self.database_dir = "client_databases/"
         Path(self.database_dir).mkdir(parents=True, exist_ok=True)
 
-        self.database_path = self.database_dir + f"{phone_number}.db"
+        # database path
+        self.database_path = self.database_dir + f"{phone_number_hashed}.db"
         self.database_connection = sqlite3.connect(self.database_path)
         self.database_connection.row_factory = sqlite3.Row
 
-        self._initialize_database_schema()
+        # aes_cipher and hmac_hasher
+        self.aes_cipher = aes_cipher
+        self.hmac_hasher = hmac_hasher
+
+        # in memory
         self.contacts: dict[str, Contact] = {}
         self.messages: dict[str, list[PrivateMessage]] = {}
-        self._load_from_database()
 
     def save_client_profile(self, client_profile_encrypted: bytes, password_hashed: str) -> bool:
         """
@@ -111,7 +118,7 @@ class ClientDatabase:
         row = res.fetchone()
         return (row[0], row[1]) if row else None
 
-    def _initialize_database_schema(self) -> None:
+    def initialize_database_schema(self) -> None:
         """
         Create 'contacts' and 'messages' tables if they do not yet exist.
         """
@@ -121,6 +128,7 @@ class ClientDatabase:
             phone_number TEXT PRIMARY KEY,
             name           TEXT,
             phone_hashed   TEXT,
+            phone_hmac     TEXT,
             profile_blob   BLOB,
             prekey_bundle_serialized  BLOB,
             x3dh_secret    BLOB,
@@ -139,7 +147,7 @@ class ClientDatabase:
         )""")
         self.database_connection.commit()
 
-    def _load_from_database(self) -> None:
+    def load_from_database(self) -> None:
         """
         Load all persisted contacts and messages into the in-memory caches.
         """
@@ -147,28 +155,28 @@ class ClientDatabase:
 
         # Load contacts
         for row in cursor.execute("SELECT * FROM contacts"):
-            profile_blob = row["profile_blob"]
+            profile_blob = self.aes_cipher.decrypt(row["profile_blob"])
             profile_obj = deserialize_profile(profile_blob) if profile_blob else None
 
-            session_blob = row["session_blob"]
+            session_blob = self.aes_cipher.decrypt(row["session_blob"])
             session_obj = DoubleRatchetSession.deserialize_session(session_blob) if session_blob else None
 
             contact = Contact(
-                name=row["name"],
-                phone_number=row["phone_number"],
+                name=self.aes_cipher.decrypts(row["name"]),
+                phone_number=self.aes_cipher.decrypts(row["phone_number"]),
                 profile=profile_obj,
-                phone_hashed=row["phone_hashed"],
-                prekey_bundle_serialized=row["prekey_bundle_serialized"],
-                x3dh_secret=row["x3dh_secret"],
+                phone_hashed=self.aes_cipher.decrypts(row["phone_hashed"]),
+                prekey_bundle_serialized=self.aes_cipher.decrypt(row["prekey_bundle_serialized"]),
+                x3dh_secret=self.aes_cipher.decrypt(row["x3dh_secret"]),
                 session=session_obj
             )
-            self.contacts[row["phone_number"]] = contact
+            self.contacts[self.aes_cipher.decrypts(row["phone_number"])] = contact
 
         # Load messages
         for row in cursor.execute(
             "SELECT sender, sender_phone_number, receiver, message, timestamp, profile_serialized_encrypted FROM messages ORDER BY timestamp"
         ):
-            private_message = PrivateMessage(sender=row["sender"], receiver=row["receiver"], message=row["message"], is_initial_message=False, timestamp=row["timestamp"], profile_serialized_encrypted=pickle.loads(row["profile_serialized_encrypted"]))
+            private_message = PrivateMessage(sender=self.aes_cipher.decrypts(row["sender"]), receiver=self.aes_cipher.decrypts(row["receiver"]), message=self.aes_cipher.decrypts(row["message"]), is_initial_message=False, timestamp=self.aes_cipher.decrypts(row["timestamp"]), profile_serialized_encrypted=pickle.loads(self.aes_cipher.decrypt(row["profile_serialized_encrypted"])))
             self.messages.setdefault(row["sender_phone_number"], []).append(private_message)
 
         # Ensure every contact has a message list
@@ -201,9 +209,9 @@ class ClientDatabase:
             return False
         self.database_connection.execute("""
             INSERT OR REPLACE INTO contacts
-              (phone_number, name, phone_hashed)
-            VALUES (?, ?, ?)
-        """, (phone_number, name, phone_hashed))
+              (phone_number, name, phone_hashed, phone_hmac)
+            VALUES (?, ?, ?, ?)
+        """, (self.aes_cipher.encrypts(phone_number), self.aes_cipher.encrypts(name), self.aes_cipher.encrypts(phone_hashed), self.hmac_hasher.hash(phone_number)))
         self.database_connection.commit()
 
         contact = Contact(
@@ -229,8 +237,8 @@ class ClientDatabase:
         self.database_connection.execute("""
             UPDATE contacts
             SET name = ?
-            WHERE phone_number = ?
-        """, (contact_name, phone_number))
+            WHERE phone_hmac = ?
+        """, (self.aes_cipher.encrypts(contact_name), self.hmac_hasher.hash(phone_number)))
         self.database_connection.commit()
         self.contacts[phone_number]["name"] = contact_name
         return True
@@ -242,8 +250,8 @@ class ClientDatabase:
         self.database_connection.execute("""
             UPDATE contacts
             SET profile_blob = ?
-            WHERE phone_number = ?
-        """, (blob, sender_phone_number))
+            WHERE phone_hmac = ?
+        """, (self.aes_cipher.encrypt(blob), self.hmac_hasher.hash(sender_phone_number)))
         self.database_connection.commit()
         self.contacts[sender_phone_number]["profile"] = sender_profile
 
@@ -252,8 +260,8 @@ class ClientDatabase:
         self.database_connection.execute("""
             UPDATE contacts
             SET prekey_bundle_serialized = ?
-            WHERE phone_number = ?
-        """, (prekey_bundle_serialized, phone_number))
+            WHERE phone_hmac = ?
+        """, (self.aes_cipher.encrypt(prekey_bundle_serialized), self.hmac_hasher.hash(phone_number)))
         self.database_connection.commit()
         self.contacts[phone_number]["prekey_bundle_serialized"] = prekey_bundle_serialized
 
@@ -262,8 +270,8 @@ class ClientDatabase:
         self.database_connection.execute("""
             UPDATE contacts
             SET x3dh_secret = ?
-            WHERE phone_number = ?
-        """, (x3dh_secret, phone_number))
+            WHERE phone_hmac = ?
+        """, (self.aes_cipher.encrypt(x3dh_secret), self.hmac_hasher.hash(phone_number)))
         self.database_connection.commit()
         self.contacts[phone_number]["x3dh_secret"] = x3dh_secret
 
@@ -273,17 +281,17 @@ class ClientDatabase:
         self.database_connection.execute("""
             UPDATE contacts
             SET session_blob = ?
-            WHERE phone_number = ?
-        """, (blob, phone_number))
+            WHERE phone_hmac = ?
+        """, (self.aes_cipher.encrypt(blob), self.hmac_hasher.hash(phone_number)))
         self.database_connection.commit()
         self.contacts[phone_number]["session"] = session
 
     # Lookup helpers
 
-    def get_contact_name_and_number_from_hash(self, phone_hashed: str) -> tuple[str | None, str | None]:
+    def get_contact_name_and_number_from_hash(self, phone_hashed: str, sha: SHA256) -> tuple[str | None, str | None]:
         """Return (name, phone) for a given hashed phone, else (None, None)."""
         for ph, contact in self.contacts.items():
-            if contact["phone_hashed"] == phone_hashed:
+            if sha.verify(phone_hashed, contact["phone_number"], ""):
                 return contact["name"], ph
         return None, None
 
@@ -313,12 +321,6 @@ class ClientDatabase:
 
     # messages methods
     def create_empty_message_list_for(self, phone_number: str) -> None:
-        """Delete all messages for a contact and clear the in-memory list."""
-        self.database_connection.execute("""
-            DELETE FROM messages
-            WHERE sender = ?
-        """, (phone_number,))
-        self.database_connection.commit()
         self.messages[phone_number] = []
 
     def add_message_to(self, sender_phone: str, private_message: PrivateMessage) -> None:
@@ -327,8 +329,9 @@ class ClientDatabase:
             INSERT INTO messages
               (sender, sender_phone_number, receiver, message, timestamp, profile_serialized_encrypted)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (private_message["sender"], sender_phone, private_message["receiver"], private_message["message"],
-              private_message["timestamp"], pickle.dumps(private_message["profile_serialized_encrypted"])))
+        """, (self.aes_cipher.encrypts(private_message["sender"]), self.aes_cipher.encrypts(sender_phone), self.aes_cipher.encrypts(private_message["receiver"]),
+              self.aes_cipher.encrypts(private_message["message"]),
+              self.aes_cipher.encrypts(private_message["timestamp"]), self.aes_cipher.encrypt(pickle.dumps(private_message["profile_serialized_encrypted"]))))
         self.database_connection.commit()
         self.messages.setdefault(sender_phone, []).append(private_message)
 

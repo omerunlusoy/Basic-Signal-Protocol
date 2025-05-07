@@ -40,7 +40,9 @@ class AES256:
     def _derive_key(self, salt: bytes) -> bytes:
         return PBKDF2(self.passphrase, salt, dkLen=32, count=self.kdf_iterations)
 
-    def encrypt(self, plaintext: bytes) -> bytes:
+    def encrypt(self, plaintext: bytes) -> bytes | None:
+        if plaintext is None:
+            return None
         # 1. Generate fresh salt & derive key
         salt = os.urandom(self.salt_size)
         key = self._derive_key(salt)
@@ -53,7 +55,9 @@ class AES256:
         blob = salt + cipher.nonce + tag + ciphertext
         return base64.b64encode(blob)
 
-    def decrypt(self, b64_input: bytes) -> bytes:
+    def decrypt(self, b64_input: bytes) -> bytes | None:
+        if b64_input is None:
+            return None
         # 1. Decode & split out components
         data = base64.b64decode(b64_input)
         salt = data[:self.salt_size]
@@ -67,6 +71,38 @@ class AES256:
         cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
         plaintext = cipher.decrypt_and_verify(ciphertext, tag)
         return plaintext
+
+    def encrypts(self, plaintext: str) -> bytes | None:
+        if plaintext is None:
+            return None
+        # 1. Generate fresh salt & derive key
+        salt = os.urandom(self.salt_size)
+        key = self._derive_key(salt)
+
+        # 2. Create GCM cipher & encrypt
+        cipher = AES.new(key, AES.MODE_GCM, nonce=os.urandom(self.nonce_size))
+        ciphertext, tag = cipher.encrypt_and_digest(plaintext.encode('utf-8'))
+
+        # 3. Output: salt || nonce || tag || ciphertext
+        blob = salt + cipher.nonce + tag + ciphertext
+        return base64.b64encode(blob)
+
+    def decrypts(self, b64_input: bytes) -> str | None:
+        if b64_input is None:
+            return None
+        # 1. Decode & split out components
+        data = base64.b64decode(b64_input)
+        salt = data[:self.salt_size]
+        nonce = data[self.salt_size:self.salt_size + self.nonce_size]
+        tag = data[self.salt_size + self.nonce_size:
+                   self.salt_size + self.nonce_size + self.tag_size]
+        ciphertext = data[self.salt_size + self.nonce_size + self.tag_size:]
+
+        # 2. Re‑derive key & decrypt/verify
+        key = self._derive_key(salt)
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+        return plaintext.decode('utf-8')
 
     def get_metadata(self) -> str:
         """

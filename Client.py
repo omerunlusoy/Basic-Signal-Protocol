@@ -29,6 +29,7 @@ from tzlocal import get_localzone  # timezone information for timestamp
 
 from AES256 import AES256
 from Argon2id import Argon2id
+from HMAC import HMAC
 from SHA256 import SHA256
 from X3DH import X3DH
 from DoubleRatchet import DoubleRatchetSession
@@ -61,21 +62,28 @@ class Client:
 
     def register(self, phone_number: str, password: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False, verbose: bool = False):
 
-        # create a profile for the client profile
-        profile = Profile(name=name, phone_number=phone_number, about=about, profile_picture=profile_picture)
         # hash phone number for future use
         phone_hashed = Client.__hash_phone_number(phone_number)
+
+        # hasher and cipher
+        argon_hasher = Argon2id(password)
+        aes_cipher = AES256(password)
+        hmac_hasher = HMAC(password)
+
+        # create a profile for the client profile
+        profile = Profile(name=name, phone_number=phone_number, about=about, profile_picture=profile_picture)
+
         # create a x3dh instance
         x3dh = X3DH(N=20)
         # create the client profile
         self.client_profile = ClientProfile(profile=profile, phone_hashed=phone_hashed, receivers_can_see_my_name=receivers_can_see_my_name, verbose=verbose, x3dh=x3dh)
 
-        password_hashed = Argon2id(password).hash(password, variable_salt=password)
-        aes_cipher = AES256(password)
         client_profile_encrypted = aes_cipher.encrypt(serialize_client_profile(self.client_profile))
 
         # create a client database instance
-        self.database = ClientDatabase(phone_number=phone_number, password=password)
+        password_hashed = argon_hasher.hash(password, variable_salt=password)
+        self.database = ClientDatabase(phone_number_hashed=phone_hashed, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher)
+        self.database.initialize_database_schema()
 
         # save the client profile
         self.database.save_client_profile(client_profile_encrypted, password_hashed)
@@ -87,9 +95,18 @@ class Client:
         self.__register_on_server()
 
     def login(self, phone_number: str, password: str):
-        self.database = ClientDatabase(phone_number=phone_number, password=password)
+        # hash phone number for future use
+        phone_hashed = Client.__hash_phone_number(phone_number)
+
+        # hasher and cipher
+        argon_hasher = Argon2id(password)
+        aes_cipher = AES256(password)
+        hmac_hasher = HMAC(password)
+
+        self.database = ClientDatabase(phone_number_hashed=phone_hashed, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher)
+        self.database.load_from_database()
         client_profile, password_hashed = self.database.get_client_profile()
-        verify_login_ = Argon2id(password).verify(data_hashed=password_hashed, data=password, variable_salt=password)
+        verify_login_ = argon_hasher.verify(data_hashed=password_hashed, data=password, variable_salt=password)
         if not verify_login_:
             print("Incorrect password!")
             return
@@ -223,7 +240,7 @@ class Client:
             if not private_message["is_initial_message"]:
 
                 # the sender's phone number will always be present in any private message in the attached profile
-                _, sender_phone_number = self.database.get_contact_name_and_number_from_hash(private_message["sender"])
+                _, sender_phone_number = self.database.get_contact_name_and_number_from_hash(private_message["sender"], sha=SHA256(pepper=""))
 
                 # fetch the session from the sender's phone number (we assume that handshake already happened and the session is created.)
                 session = self.database.get_contact(sender_phone_number)["session"]
