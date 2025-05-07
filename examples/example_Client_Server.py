@@ -49,25 +49,28 @@ def run_bob():
     """
     time.sleep(2)  # allow server to come up
 
-    bob = Client(phone_number="0002", name="Bob", verbose=verbose_)
+    bob = Client()
+    bob.register(phone_number="0002", password="1234", name="Bob", verbose=verbose_)
+    bob.add_contact(phone_number="0001", name="Alice")
 
     time.sleep(3)  # wait for Alice’s initial handshake
     bob.check_for_messages()
 
     # Send a series of encrypted replies to Alice
-    bob.send_private_message(name="Alice", message="It is been a while...")
-
-    # update Charlie's name
-    bob.update_contact_name(phone_number="0003", contact_name="Charlie")
-    bob.update_contact_name(phone_number="0004", contact_name="Dave")
+    bob.send_private_message(name="Alice", message="Hello Alice!")
+    bob.send_private_message(name="Alice", message="I am fine, thank you.")
+    bob.send_private_message(name="Alice", message="Glad to see it works.")
 
     time.sleep(5)  # give Alice time to fetch replies
     bob.check_for_messages()
 
     # Send messages to other contacts (including first-time and unknown)
-    bob.send_private_message(name="Charlie", message="Whats up Charlie!")      # using Charlie's profile name
-    bob.send_private_message(phone_number="0003", message="Are you ok?")   # using Charlie's phone number
-    bob.send_private_message(phone_number="0004", message="I added you Dave.")
+    bob.send_private_message(name="Charlie", message="Hello Charlie!")      # using Charlie's profile name
+    bob.send_private_message(phone_number="0003", message="How are you?")   # using Charlie's phone number
+    bob.send_private_message(phone_number="0004", message="Who is this?")
+
+    # update Charlie's name
+    bob.update_contact_name(phone_number="0003", contact_name="Charlie")
 
     # Display Bob’s contact list at the end of the run
     bob.list_contacts()
@@ -90,18 +93,23 @@ def run_alice():
     """
     time.sleep(2)  # ensure the server is ready
 
-    alice = Client(
+    alice = Client()
+    alice.register(
         phone_number="0001",
+        password="1234",
         name="Alice",
         about="Love from Alice :)",
         receivers_can_see_my_name=True,
         verbose=verbose_
     )
+    alice.add_contact(phone_number="0002", name="Bob")
 
     time.sleep(1)  # ensure Bob is registered
 
     # Send initial handshake and messages to Bob
-    alice.send_private_message(name="Bob", message="Sup Bob :)")
+    alice.send_private_message(name="Bob", message="Hello Bob!")
+    alice.send_private_message(name="Bob", message="How are you?")
+    alice.send_private_message(name="Bob", message="I am just testing Signal.")
 
     time.sleep(5)  # allow Bob to process and reply
     alice.check_for_messages()
@@ -124,12 +132,15 @@ def run_charlie():
     """
     time.sleep(6)  # ensure the server has been up long enough
 
-    charlie = Client(
+    charlie = Client()
+    charlie.register(
         phone_number="0003",
+        password="1234",
         name="Charlie",
         receivers_can_see_my_name=True,
         verbose=verbose_
     )
+    charlie.add_contact(phone_number="0002", name="Bob")
 
     # Send a single message to Bob
     charlie.send_private_message(name="Bob", message="Hello Bob!")
@@ -153,8 +164,10 @@ def run_dave():
     """
     time.sleep(8)  # wait for server and other processes
 
-    dave = Client(
+    dave = Client()
+    dave.register(
         phone_number="0004",
+        password="1234",
         name="Dave",
         receivers_can_see_my_name=False,
         verbose=verbose_
@@ -163,7 +176,7 @@ def run_dave():
     # Send a message directly using Bob's phone number
     dave.send_private_message(
         phone_number="0002",
-        message="Hello Bob."
+        message="Hello Bob, it is Dave, save my number please."
     )
     time.sleep(6)
     dave.check_for_messages()

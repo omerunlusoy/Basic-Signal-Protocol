@@ -8,9 +8,9 @@ Author: Ömer Ünlüsoy
 Date:   5-May-2025
 """
 
-from Contact import Contact, list_contact
-from PrivateMessage import PrivateMessage
-from Profile import Profile
+from DataClasses.Contact import Contact, list_contact
+from DataClasses.PrivateMessage import PrivateMessage
+from DataClasses.Profile import Profile
 from DoubleRatchet import DoubleRatchetSession
 
 

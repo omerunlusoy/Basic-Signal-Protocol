@@ -18,9 +18,6 @@ Example:
     client.send_private_message(name="Alice", message="Hello, Alice!")
     client.check_for_messages()
 
-TODO:
-    - make sure __update_profile() always uses the correct name (DONE!)
-
 Author: Ömer Ünlüsoy
 Date:   30-April-2025
 """
@@ -30,13 +27,16 @@ import pickle
 from datetime import datetime  # to get timestamp
 from tzlocal import get_localzone  # timezone information for timestamp
 
+from AES256 import AES256
+from Argon2id import Argon2id
 from SHA256 import SHA256
 from X3DH import X3DH
 from DoubleRatchet import DoubleRatchetSession
 
-from PrekeyBundle import serialize_prekey_bundle, deserialize_prekey_bundle
-from PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
-from Profile import Profile, serialize_profile, deserialize_profile
+from DataClasses.PrekeyBundle import serialize_prekey_bundle, deserialize_prekey_bundle
+from DataClasses.PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
+from DataClasses.Profile import Profile, serialize_profile, deserialize_profile
+from DataClasses.ClientProfile import ClientProfile, serialize_client_profile, deserialize_client_profile
 from ClientDatabaseSQLite import ClientDatabase
 
 
@@ -50,39 +50,52 @@ class Client:
     and manage a list of contacts. The client supports functionality such as
     initiating handshakes for secure communication, checking for new messages,
     and handling session-based encrypted communication.
-
-    Attributes:
-        profile (Profile): The client's profile containing display name, phone
-            number, about information, and profile picture.
-        receivers_can_see_my_name (bool): Determines if receivers can see the
-            client's display name.
-        database (ClientDatabase): The client's database containing the client's contacts and messages.
-        verbose (bool): Toggle for verbose output during operations.
-        phone_hashed (str): Hashed version of the client's phone number.
-        x3dh (X3DH): Instance of X3DH protocol for managing the cryptographic
-            handshake process.
-        server_port (int): The port used by the server for communication.
     """
 
-    def __init__(self, phone_number: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False, verbose: bool = False):
-
-        self.profile = Profile(name=name, phone_number=phone_number, about=about, profile_picture=profile_picture)
-        self.receivers_can_see_my_name = receivers_can_see_my_name
-
-        self.database = ClientDatabase(phone_number=phone_number, password="1234")
-        self.verbose = verbose
-
-        self.phone_hashed = Client.__hash_phone_number(phone_number)
-        self.x3dh = X3DH(N=10)
+    def __init__(self):
+        self.client_profile = None
+        self.database = None
 
         # decide on the ports
         self.server_port = 12345  # server's port
 
-        if verbose:
-            print(f"\t Account {self.profile["name"]} ({self.profile["phone_number"]}) is created.")
+    def register(self, phone_number: str, password: str, name: str = "", about: str = None, profile_picture: bytes = None, receivers_can_see_my_name: bool = False, verbose: bool = False):
+
+        # create a profile for the client profile
+        profile = Profile(name=name, phone_number=phone_number, about=about, profile_picture=profile_picture)
+        # hash phone number for future use
+        phone_hashed = Client.__hash_phone_number(phone_number)
+        # create a x3dh instance
+        x3dh = X3DH(N=20)
+        # create the client profile
+        self.client_profile = ClientProfile(profile=profile, phone_hashed=phone_hashed, receivers_can_see_my_name=receivers_can_see_my_name, verbose=verbose, x3dh=x3dh)
+
+        password_hashed = Argon2id(password).hash(password, variable_salt=password)
+        aes_cipher = AES256(password)
+        client_profile_encrypted = aes_cipher.encrypt(serialize_client_profile(self.client_profile))
+
+        # create a client database instance
+        self.database = ClientDatabase(phone_number=phone_number, password=password)
+
+        # save the client profile
+        self.database.save_client_profile(client_profile_encrypted, password_hashed)
+
+        if self.client_profile["verbose"]:
+            print(f"\t Account {self.client_profile["profile"]["name"]} ({self.client_profile["profile"]["phone_number"]}) is created.")
 
         # register the client on server
         self.__register_on_server()
+
+    def login(self, phone_number: str, password: str):
+        self.database = ClientDatabase(phone_number=phone_number, password=password)
+        client_profile, password_hashed = self.database.get_client_profile()
+        verify_login_ = Argon2id(password).verify(data_hashed=password_hashed, data=password, variable_salt=password)
+        if not verify_login_:
+            print("Incorrect password!")
+            return
+        else:
+            aes_cipher = AES256(password)
+            self.client_profile = deserialize_client_profile(aes_cipher.decrypt(client_profile))
 
     def send_private_message(self, name: str = None, phone_number: str = None, message: str = None) -> None:
         """
@@ -143,7 +156,7 @@ class Client:
 
         profile_serialized_encrypted_ = session.encrypt_message(self.__get_serialized_profile_for_sender(phone_number_))
         serialized_private_message = serialize_private_message(
-            PrivateMessage(sender=self.phone_hashed, receiver=contact["phone_hashed"], message=message_encrypted_, is_initial_message=False, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_))
+            PrivateMessage(sender=self.client_profile["phone_hashed"], receiver=contact["phone_hashed"], message=message_encrypted_, is_initial_message=False, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_))
         # create a private message tuple and serialize with pickle
         message_encrypted_tuple = ("private_message", serialized_private_message)
         message_encrypted_tuple_serialized = pickle.dumps(message_encrypted_tuple)
@@ -153,7 +166,7 @@ class Client:
         self.database.update_double_ratchet_session(phone_number=phone_number_, session=session)
 
         # receive the server's response
-        if self.verbose:
+        if self.client_profile["verbose"]:
             print("\t", server_respond)
 
     def check_for_messages(self):
@@ -166,7 +179,7 @@ class Client:
         Raises:
             ValueError: If no session is found for a sender when processing non-initial messages.
         """
-        check_for_messages_tuple = ("check_for_messages", self.phone_hashed)
+        check_for_messages_tuple = ("check_for_messages", self.client_profile["phone_hashed"])
         check_for_messages_tuple_serialized = pickle.dumps(check_for_messages_tuple)
         server_respond = self.__send_to_server(check_for_messages_tuple_serialized)
 
@@ -180,11 +193,11 @@ class Client:
 
                 # x3dh respond handshake
                 initial_message_ = private_message["message"]
-                x3dh_secret = self.x3dh.respond_handshake(initial_message_)
+                x3dh_secret = self.client_profile["x3dh"].respond_handshake(initial_message_)
 
                 # establish "receiver" DoubleRatchetSession
                 initial_root_key, initial_chain_key = DoubleRatchetSession.derive_root_and_chain_keys(root_key=b"\x00" * 32, dh_shared_secret=x3dh_secret)
-                receiver_session = DoubleRatchetSession(initial_dh_private_key=self.x3dh.signed_prekey_private_key, root_key=initial_root_key, sending_chain_key=None, receiving_chain_key=initial_chain_key, initial_remote=initial_message_["initiator_ephemeral_public_key"])
+                receiver_session = DoubleRatchetSession(initial_dh_private_key=self.client_profile["x3dh"].signed_prekey_private_key, root_key=initial_root_key, sending_chain_key=None, receiving_chain_key=initial_chain_key, initial_remote=initial_message_["initiator_ephemeral_public_key"])
 
                 sender_profile = deserialize_profile(receiver_session.decrypt_message(private_message["profile_serialized_encrypted"]))
                 sender_phone_number = sender_profile["phone_number"]
@@ -235,7 +248,7 @@ class Client:
                     else:
                         private_message["sender"] = contact["name"]
 
-                    private_message["receiver"] = self.profile["name"]
+                    private_message["receiver"] = self.client_profile["profile"]["name"]
                     private_message["message"] = message_decrypted
 
                     # add the message to the messages list
@@ -244,7 +257,7 @@ class Client:
                     raise ValueError("Session not found!")
 
         # list all the messages
-        self.database.list_all_messages(self.profile["name"])
+        self.database.list_all_messages(self.client_profile["profile"]["name"])
 
     def add_contact(self, phone_number: str, name: str = None) -> None:
         """
@@ -269,7 +282,7 @@ class Client:
 
         # initialize an empty messages_from_phone_number list within the messages dict with the phone number as the key
         self.database.create_empty_message_list_for(phone_number)
-        if self.verbose:
+        if self.client_profile["verbose"]:
             print(f"\t Contact {name} ({phone_number}) added to contacts.")
 
     def update_contact_name(self, phone_number: str, contact_name: str) -> None:
@@ -278,16 +291,16 @@ class Client:
             print("Contact not found!")
 
     def list_contacts(self) -> None:
-        self.database.list_contacts(self.profile["name"])
+        self.database.list_contacts(self.client_profile["profile"]["name"])
 
     def receivers_can_see_my_name(self, receivers_can_see_my_name: bool = False) -> None:
         """Toggles whether receivers can see the client's display name."""
-        self.receivers_can_see_my_name = receivers_can_see_my_name
+        self.client_profile["receivers_can_see_my_name"] = receivers_can_see_my_name
 
     def delete_account(self) -> None:
         """Deletes the client's account from the server."""
         self.database.delete_database()
-        del self.profile
+        del self.client_profile["profile"]
 
     def __initiate_handshake(self, phone_number: str):
         """Initiates the X3DH handshake with a given contact."""
@@ -299,7 +312,7 @@ class Client:
             X3DH.verify_signed_prekey_signature(receiver_prekey_bundle_)
 
             # x3dh initiate handshake (derive x3dh secret)
-            x3dh_first_message, x3dh_secret, ephemeral_private_key = self.x3dh.initiate_handshake(receiver_prekey_bundle_, receiver_prekey_bundle_["one_time_prekey_public_index"])
+            x3dh_first_message, x3dh_secret, ephemeral_private_key = self.client_profile["x3dh"].initiate_handshake(receiver_prekey_bundle_, receiver_prekey_bundle_["one_time_prekey_public_index"])
             self.database.update_x3dh_secret(phone_number=phone_number, x3dh_secret=x3dh_secret)
 
             # establish "sender" DoubleRatchetSession
@@ -311,12 +324,12 @@ class Client:
             profile_serialized_encrypted_ = sender_session.encrypt_message(self.__get_serialized_profile_for_sender(phone_number))
 
             # create a handshake message to be stored on the server
-            x3dh_first_message_tuple = ("initial_message", serialize_private_message(PrivateMessage(sender=self.phone_hashed, receiver=self.database.get_contact(phone_number)["phone_hashed"], message=x3dh_first_message, is_initial_message=True, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_)))
+            x3dh_first_message_tuple = ("initial_message", serialize_private_message(PrivateMessage(sender=self.client_profile["phone_hashed"], receiver=self.database.get_contact(phone_number)["phone_hashed"], message=x3dh_first_message, is_initial_message=True, timestamp=datetime.now(get_localzone()).isoformat(), profile_serialized_encrypted=profile_serialized_encrypted_)))
 
             # serialize the message and send it to the server
             x3dh_first_message_tuple_serialized = pickle.dumps(x3dh_first_message_tuple)
             server_respond = self.__send_to_server(x3dh_first_message_tuple_serialized, buffer_size=2048 * 2)
-            if self.verbose:
+            if self.client_profile["verbose"]:
                 print("\t", server_respond)
 
             # Zeroize ephemeral_private_key
@@ -326,10 +339,10 @@ class Client:
 
     def __register_on_server(self) -> None:
         """Registers the client on the server."""
-        register_tuple = ("register", self.phone_hashed, serialize_prekey_bundle(self.x3dh.get_prekey_bundle()))
+        register_tuple = ("register", self.client_profile["phone_hashed"], serialize_prekey_bundle(self.client_profile["x3dh"].get_prekey_bundle()))
         register_tuple_serialized = pickle.dumps(register_tuple)
         server_respond = self.__send_to_server(register_tuple_serialized)
-        if self.verbose:
+        if self.client_profile["verbose"]:
             print("\t", server_respond)
 
     def __send_to_server(self, data: bytes, buffer_size: int = 1024 * 4):
@@ -347,7 +360,7 @@ class Client:
         server_respond = pickle.loads(response)
 
         # check if the message includes an error
-        if isinstance(server_respond, str) and "error" in server_respond:
+        if isinstance(server_respond, str) and "Error" in server_respond:
             raise ValueError(server_respond)
         return server_respond
 
@@ -358,7 +371,7 @@ class Client:
         phone_hashed_ = self.database.get_contact(phone_number)["phone_hashed"]
 
         # create a server request tuple and serialize
-        fetch_tuple = ("fetch_prekey_bundle", self.phone_hashed, phone_hashed_)
+        fetch_tuple = ("fetch_prekey_bundle", self.client_profile["phone_hashed"], phone_hashed_)
         fetch_tuple_serialized = pickle.dumps(fetch_tuple)
 
         # save server response as the prekey bundle
@@ -382,12 +395,12 @@ class Client:
                 The serialized representation of the user's profile appropriate for the sender.
         """
         # if the sender can view the user's profile (phone is saved or the user allows everyone to see their profile)
-        if self.receivers_can_see_my_name or (self.database.phone_number_in_contacts(phone_number) and self.database.get_contact(phone_number)["name"] is not None):
-            return serialize_profile(Profile(name=self.profile["name"], phone_number=self.profile["phone_number"], about=self.profile["about"], profile_picture=self.profile["profile_picture"]))
+        if self.client_profile["receivers_can_see_my_name"] or (self.database.phone_number_in_contacts(phone_number) and self.database.get_contact(phone_number)["name"] is not None):
+            return serialize_profile(Profile(name=self.client_profile["profile"]["name"], phone_number=self.client_profile["profile"]["phone_number"], about=self.client_profile["profile"]["about"], profile_picture=self.client_profile["profile"]["profile_picture"]))
         else:
-            return serialize_profile(Profile(name=None, phone_number=self.profile["phone_number"], about=None, profile_picture=None))
+            return serialize_profile(Profile(name=None, phone_number=self.client_profile["profile"]["phone_number"], about=None, profile_picture=None))
 
     @staticmethod
-    def __hash_phone_number(phone_number: str):
+    def __hash_phone_number(phone_number: str) -> str:
         """Hashes a phone number using hashlib's SHA256."""
         return SHA256(pepper="").hash(phone_number, salt="")

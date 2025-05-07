@@ -13,8 +13,8 @@ Date:   30-April-2025
 import socket
 import pickle
 
-from PrekeyBundle import PreKeyBundle, serialize_prekey_bundle, deserialize_prekey_bundle
-from PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
+from DataClasses.PrekeyBundle import PreKeyBundle, serialize_prekey_bundle, deserialize_prekey_bundle
+from DataClasses.PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
 
 
 class Server:
@@ -86,6 +86,28 @@ class Server:
         bundle["one_time_prekey_public_index"] += 1
         return bundle
 
+    def __fetch_my_messages(self, receiver_phone_hashed: str) -> list[bytes]:
+        """
+        Collect and remove all messages addressed to a given user.
+
+        Args:
+            receiver_phone_hashed: Hashed phone number of the requesting client.
+
+        Returns:
+            List of serialized PrivateMessage objects for delivery.
+        """
+        selected: list[bytes] = []
+        # Iterate in reverse to remove delivered messages safely
+        for idx in reversed(range(len(self.messages))):
+            msg = self.messages[idx]
+            if msg["receiver"] == receiver_phone_hashed:
+                selected.append(serialize_private_message(msg))
+                del self.messages[idx]
+        selected.reverse()  # Restore original chronological order
+        if self.verbose:
+            self._debug_list_messages()
+        return selected
+
     def __analyze_request(self, request: tuple) -> bytes | list[bytes] | str:
         """
         Dispatch a client request tuple to the appropriate handler.
@@ -112,7 +134,7 @@ class Server:
             success = self.__create_account(phone_hashed, prekey_bundle)
             if self.verbose:
                 self._debug_list_users()
-            return "Account created successfully!" if success else "Error: account already exists!"
+            return "Account created successfully!".encode("utf-8") if success else "Error: account already exists!".encode("utf-8")
 
         elif command == "fetch_prekey_bundle":
             # Client asks for another user’s bundle
@@ -120,53 +142,31 @@ class Server:
             receiver = request[2]
             prekey_bundle = self.__fetch_prekey_bundle(receiver)
             if prekey_bundle is None:
-                return "Error: no account found!"
+                return "Error: no account found!".encode("utf-8")
             return serialize_prekey_bundle(prekey_bundle)
 
         elif command in ("initial_message", "private_message"):
             # Store incoming PrivateMessage on server queue
             msg = deserialize_private_message(request[1])
             sender, receiver = msg["sender"], msg["receiver"]
-            if sender not in self.users or receiver not in self.users:
-                return "Error: invalid private message!"
+            # if sender not in self.users or receiver not in self.users:
+            #     return "Error: invalid private message!".encode("utf-8")
             self.messages.append(msg)
             if self.verbose:
                 self._debug_list_messages()
-            return ("Double Ratchet initial message stored on server."
+            return ("Double Ratchet initial message stored on server.".encode("utf-8")
                     if command == "initial_message"
-                    else "Message stored on server.")
+                    else "Message stored on server.".encode("utf-8"))
 
         elif command == "check_for_messages":
             # Client requests its queued messages
             receiver = request[1]
-            if receiver not in self.users:
-                return "Error: invalid private message!"
+            # if receiver not in self.users:
+            #     return "Error: invalid private message!".encode("utf-8")
             return self.__fetch_my_messages(receiver)
 
         else:
-            return "Error: invalid message!"
-
-    def __fetch_my_messages(self, receiver_phone_hashed: str) -> list[bytes]:
-        """
-        Collect and remove all messages addressed to a given user.
-
-        Args:
-            receiver_phone_hashed: Hashed phone number of the requesting client.
-
-        Returns:
-            List of serialized PrivateMessage objects for delivery.
-        """
-        selected: list[bytes] = []
-        # Iterate in reverse to remove delivered messages safely
-        for idx in reversed(range(len(self.messages))):
-            msg = self.messages[idx]
-            if msg["receiver"] == receiver_phone_hashed:
-                selected.append(serialize_private_message(msg))
-                del self.messages[idx]
-        selected.reverse()  # Restore original chronological order
-        if self.verbose:
-            self._debug_list_messages()
-        return selected
+            return "Error: invalid message!".encode("utf-8")
 
     def _server_loop(self):
         """

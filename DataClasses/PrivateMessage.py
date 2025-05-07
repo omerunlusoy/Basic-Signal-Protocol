@@ -12,7 +12,7 @@ Date:   30-April-2025
 from typing import TypedDict, Tuple
 import pickle
 
-from InitialMessage import InitialMessage, serialize_initial_message, deserialize_initial_message
+from DataClasses.InitialMessage import InitialMessage, serialize_initial_message, deserialize_initial_message
 
 
 class PrivateMessage(TypedDict):

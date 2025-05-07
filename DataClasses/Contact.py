@@ -11,7 +11,7 @@ Date:   30-April-2025
 from typing import TypedDict
 
 from DoubleRatchet import DoubleRatchetSession
-from Profile import Profile
+from DataClasses.Profile import Profile
 
 
 class Contact(TypedDict):

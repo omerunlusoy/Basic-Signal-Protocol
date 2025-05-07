@@ -10,9 +10,11 @@ import pickle
 from datetime import datetime
 from pathlib import Path
 import sqlite3
-from Contact import Contact, list_contact
-from PrivateMessage import PrivateMessage
-from Profile import Profile, serialize_profile, deserialize_profile
+from typing import Optional, Tuple
+
+from DataClasses.Contact import Contact, list_contact
+from DataClasses.PrivateMessage import PrivateMessage
+from DataClasses.Profile import Profile, serialize_profile, deserialize_profile
 from DoubleRatchet import DoubleRatchetSession
 
 
@@ -35,8 +37,10 @@ class ClientDatabase:
             phone_number: Unique identifier for this user (used as DB filename).
             password:    Password for optional file encryption (TODO: implement).
         """
+        # create directory
         self.database_dir = "client_databases/"
         Path(self.database_dir).mkdir(parents=True, exist_ok=True)
+
         self.database_path = self.database_dir + f"{phone_number}.db"
         self.database_connection = sqlite3.connect(self.database_path)
         self.database_connection.row_factory = sqlite3.Row
@@ -45,6 +49,67 @@ class ClientDatabase:
         self.contacts: dict[str, Contact] = {}
         self.messages: dict[str, list[PrivateMessage]] = {}
         self._load_from_database()
+
+    def save_client_profile(self, client_profile_encrypted: bytes, password_hashed: str) -> bool:
+        """
+            Returns False if the 'client_profile' table already exists.
+            Otherwise, creates it, inserts the given row, commits, and returns True.
+        """
+
+        # 1) check for table existence
+        res = self.database_connection.execute("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+            AND name = 'client_profile'
+            """)
+        if res.fetchone():
+            # table already exists → do nothing
+            return False
+
+        # 2) create the table
+        self.database_connection.execute("""
+            CREATE TABLE client_profile (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_encrypted BLOB NOT NULL,
+                password_hashed   TEXT NOT NULL
+            )""")
+
+        # 3) insert the provided data
+        self.database_connection.execute("""
+            INSERT INTO client_profile 
+                (profile_encrypted, password_hashed) 
+            VALUES (?, ?)
+            """, (client_profile_encrypted, password_hashed))
+
+        self.database_connection.commit()
+        return True
+
+    def get_client_profile(self) -> Optional[Tuple[bytes, str]]:
+        """
+        Fetch the stored client_profile if it exists.
+        Returns a tuple (profile_encrypted, password_hashed),
+        or None if no table or no row is found.
+        """
+
+        # Make sure the table exists
+        res = self.database_connection.execute("""
+            SELECT name
+              FROM sqlite_master
+             WHERE type='table'
+               AND name='client_profile'
+        """)
+        if not res.fetchone():
+            return None
+
+        # Fetch the first (and only) row
+        res = self.database_connection.execute("""
+            SELECT profile_encrypted, password_hashed
+              FROM client_profile
+             LIMIT 1
+        """)
+        row = res.fetchone()
+        return (row[0], row[1]) if row else None
 
     def _initialize_database_schema(self) -> None:
         """
