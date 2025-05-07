@@ -2,7 +2,7 @@
 PreKeyBundle serialization module.
 
 Defines a TypedDict for an X3DH PreKeyBundle and provides functions to
-serialize it into a plain dict of raw bytes for transport/storage, and
+serialize it into a plain dict of raw bytes for transport/storage and
 reconstruct it back into Python objects.
 
 Author: Ömer Ünlüsoy

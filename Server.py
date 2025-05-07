@@ -14,13 +14,12 @@ import socket
 import pickle
 
 from AES256 import AES256
-from Argon2id import Argon2id
-from DataClasses.PrekeyBundle import PreKeyBundle, serialize_prekey_bundle, deserialize_prekey_bundle
-from DataClasses.PrivateMessage import PrivateMessage, serialize_private_message, deserialize_private_message
-from HMAC import HMAC
 from SHA256 import SHA256
+from Argon2id import Argon2id
 
-from ServerDatabasePure import ServerDatabase
+from DataClasses.PrekeyBundle import serialize_prekey_bundle, deserialize_prekey_bundle
+from DataClasses.PrivateMessage import deserialize_private_message
+from ServerDatabaseSQLite import ServerDatabase
 
 
 class Server:
@@ -29,14 +28,12 @@ class Server:
     and relays encrypted messages between clients.
 
     Attributes:
-        users (dict[str, PreKeyBundle]):
-            Maps each user’s hashed phone number to their current pre-key bundle.
-        messages (list[PrivateMessage]):
-            Queue of pending PrivateMessage objects stored for delivery.
         host (str):
-            Hostname or IP address on which the server listens.
+            Hostname or IP address on which the server listens to.
         port (int):
-            TCP port number on which the server listens.
+            TCP port number on which the server listens to.
+        database (ServerDatabase):
+            The database instance to use for user management.
         verbose (bool):
             If True, prints debug information about registered users and message queues.
     """
@@ -47,10 +44,16 @@ class Server:
 
     def __init__(self) -> None:
         """
-        Initialize the server state and start the listening loop.
+        Represents a basic initializer for an object with a database and a verbosity flag.
 
-        Args:
-            database: The database instance to use for user management.
+        This class's instance variables are defined for managing a database connection
+        and controlling the verbosity level. The database attribute is initialized as
+        None, and the verbose attribute is a boolean flag set to False by default.
+
+        Variables:
+            database: Represents the database connection. Initialized as None.
+            verbose: A boolean flag indicating whether verbose mode is enabled.
+                Defaults to False.
         """
         self.database = None
         self.verbose: bool = False
@@ -59,35 +62,32 @@ class Server:
         # hashers and cipher
         argon_hasher = Argon2id(admin_password)
         aes_cipher = AES256(admin_password)
-        hmac_hasher = HMAC(admin_password)
 
         # hash admin password
         password_hashed = argon_hasher.hash(admin_password, variable_salt=admin_username)
 
-        self.database = ServerDatabase(password_hashed=password_hashed, argon_hasher=argon_hasher, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher, verbose=verbose)
-        self.database.initialize_server_database_schema(db_name=self.__hash(admin_username))
+        self.database = ServerDatabase(db_name=self.__hash(admin_username), admin_password_hashed=password_hashed, aes_cipher=aes_cipher, verbose=verbose)
+        self.database.initialize_server_database_schema()
         self.verbose = verbose
 
     def login_server(self, admin_username: str, admin_password: str):
         # hashers and cipher
         argon_hasher = Argon2id(admin_password)
         aes_cipher = AES256(admin_password)
-        hmac_hasher = HMAC(admin_password)
 
         # hash admin password
         password_hashed = argon_hasher.hash(admin_password, variable_salt=admin_username)
 
         # initialize the database and get the admin password hashed
-        self.database = ServerDatabase(password_hashed=password_hashed, argon_hasher=argon_hasher, aes_cipher=aes_cipher, hmac_hasher=hmac_hasher, verbose=False)
-        password_hashed = self.database.fetch_admin_password_hashed()
+        self.database = ServerDatabase(db_name=self.__hash(admin_username), admin_password_hashed=password_hashed, aes_cipher=aes_cipher, verbose=False)
+        password_hashed, self.verbose = self.database.fetch_admin_password_hashed_and_verbose()
 
         verify_login_ = argon_hasher.verify(data_hashed=password_hashed, data=admin_password, variable_salt=admin_username)
         if not verify_login_:
             print("Incorrect password!")
             return
         else:
-            self.database.restore_database(db_name=self.__hash(admin_username))
-            self.verbose = self.database.fetch_verbose()
+            self.database.restore_database()
 
     def __create_account(self, phone_hashed: str, prekey_bundle_serialized: bytes) -> bool:
         """
@@ -234,7 +234,7 @@ class Server:
                     with conn:
                         while True:
                             raw_len = Server.__recv_all(conn, 4)
-                            # if client cleanly closed, raw_len will be zero‐length
+                            # if the client cleanly closed, raw_len will be zero‐lengths
                             if not raw_len:
                                 break
                             length = int.from_bytes(raw_len, 'big')
@@ -247,7 +247,7 @@ class Server:
                     if self.verbose:
                         print(f"Client {addr} disconnected.")
                 except Exception as e:
-                    # log unexpected per-client errors, but keep server up
+                    # log unexpected per-client errors but keep the server up
                     print(f"Error handling client {addr}: {e}")
         except KeyboardInterrupt:
             print("\nServer shutting down.")
@@ -270,18 +270,10 @@ class Server:
 
     # -- Debug helpers --
     def _debug_list_users(self):
-        """Print all registered users and their pre-key bundles (verbose mode only)."""
-        print("\n--- Registered Users on Server ---")
-        for uid, bundle in self.users.items():
-            print(uid, bundle)
-        print("------------------------\n")
+        self.database.debug_list_users()
 
     def _debug_list_messages(self):
-        """Print all queued messages (verbose mode only)."""
-        print("\n--- Message Queue on Server ---")
-        for msg in self.messages:
-            print(msg["sender"], "→", msg["receiver"], "| initial:", msg["is_initial_message"])
-        print("---------------------\n")
+        self.database.debug_list_messages()
 
     @staticmethod
     def __hash(phone_number: str) -> str:

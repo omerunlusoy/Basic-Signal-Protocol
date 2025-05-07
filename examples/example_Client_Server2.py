@@ -32,7 +32,7 @@ def run_server():
     """
     # The server loop runs indefinitely until externally terminated.
     server = Server()
-    server.register_server(admin_username="omer", admin_password="123", verbose=False)
+    server.login_server(admin_username="omer", admin_password="123")
     server.loop()
 
 
@@ -126,7 +126,7 @@ def run_charlie():
     charlie.login(phone_number="0003", password="1234")
 
     # Send a single message to Bob
-    charlie.send_private_message(name="Bob", message="Hello Bob!")
+    charlie.send_private_message(name="Bob", message="Hello Bob! It is Charlie.")
     time.sleep(6)  # await replies
     charlie.check_for_messages()
 
@@ -163,6 +163,32 @@ def run_dave():
         dave.delete_account()
 
 
+def run_eve():
+    """
+    Simulate Dave’s behavior: register, send a message to Bob without adding as contact, then fetch replies.
+
+    - Registers as phone "0004" with the name "Dave".
+    - Does not add Bob explicitly as a contact.
+    - Sends a message to Bob; Bob should add Dave on first contact.
+    - Waits for any responses.
+    - Fetches and decrypts incoming messages.
+    """
+    time.sleep(8)  # wait for server and other processes
+
+    eve = Client()
+    eve.register(phone_number="0005", password="1234", name="Eve", verbose=verbose_)
+
+    # Send a message directly using Bob's phone number
+    eve.send_private_message(
+        phone_number="0002",
+        message="Hello Bob, this is Eve, save my number please."
+    )
+
+    # delete the account
+    if delete_accounts_:
+        eve.delete_account()
+
+
 if __name__ == "__main__":
     # Launch server and client processes in parallel
     p_server = multiprocessing.Process(target=run_server, name="Server")
@@ -170,6 +196,7 @@ if __name__ == "__main__":
     p_bob = multiprocessing.Process(target=run_bob, name="Bob")
     p_charlie = multiprocessing.Process(target=run_charlie, name="Charlie")
     p_dave = multiprocessing.Process(target=run_dave, name="Dave")
+    p_eve = multiprocessing.Process(target=run_eve, name="Eve")
 
     # Start all processes
     p_server.start()
@@ -177,12 +204,14 @@ if __name__ == "__main__":
     p_bob.start()
     p_charlie.start()
     p_dave.start()
+    p_eve.start()
 
     # Wait for clients to finish their interactions
     p_alice.join()
     p_bob.join()
     p_charlie.join()
     p_dave.join()
+    p_eve.join()
 
     # Terminate the server process
     print("\nProcess 0: Server")

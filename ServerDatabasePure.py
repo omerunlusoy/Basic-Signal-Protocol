@@ -1,31 +1,37 @@
 """
+Server Database class for the Signal protocol server.
+in memory implementation.
 
+Author: Ömer Ünlüsoy
+Date:   7-May-2025
 """
 from AES256 import AES256
-from Argon2id import Argon2id
-from HMAC import HMAC
 
 
 class ServerDatabase:
 
-    def __init__(self, password_hashed: str, argon_hasher: Argon2id, aes_cipher: AES256, hmac_hasher: HMAC, verbose: bool):
+    def __init__(self, db_name: str, admin_password_hashed: str, aes_cipher: AES256, verbose: bool):
+
+        # database name
+        self.db_name = db_name
 
         # users and messages dicts
         self.users: dict[str, bytes] | None = None
         self.messages: dict[str: list[bytes]] | None = None
 
         # hashers and cipher
-        self.argon_hasher = argon_hasher
         self.aes_cipher = aes_cipher
-        self.hmac_hasher = hmac_hasher
 
         # save password hashed
-        self.password_hashed = password_hashed
+        self.password_hashed = admin_password_hashed
         self.verbose = verbose
 
-    def initialize_server_database_schema(self, db_name: str):
+    def initialize_server_database_schema(self):
         self.users = {}
         self.messages = {}
+
+    def restore_database(self) -> None:
+        return
 
     def phone_hashed_in_users(self, phone_hashed) -> bool:
         return phone_hashed in self.users
@@ -54,6 +60,3 @@ class ServerDatabase:
 
     def fetch_verbose(self) -> bool:
         return self.verbose
-
-    def restore_database(self, db_name: str) -> None:
-        return

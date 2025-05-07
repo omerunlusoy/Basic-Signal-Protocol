@@ -34,14 +34,20 @@ class ClientDatabase:
 
     def __init__(self, phone_number_hashed: str, aes_cipher: AES256, hmac_hasher: HMAC):
         """
-        Initialize or open the SQLite database and load all data into memory.
+        Initializes an instance of the class for handling encrypted message and contact storage
+        on a local SQLite database. During initialization, it ensures the database directory is
+        created, connects to the SQLite database, and sets up AES cipher and HMAC hasher for
+        encryption and hashing respectively. Two in-memory dictionaries for storing contacts and
+        messages are also initialized.
 
         Args:
-            phone_number: Unique identifier for this user (used as DB filename).
-            password:    Password for optional file encryption (TODO: implement).
+            phone_number_hashed: The hashed phone number used to uniquely identify the
+                user's database.
+            aes_cipher: The AES cipher used for encrypting and decrypting sensitive data.
+            hmac_hasher: The HMAC hasher instance used for hashing sensitive data.
         """
         # create directory
-        self.database_dir = "client_databases/"
+        self.database_dir = "databases/"
         Path(self.database_dir).mkdir(parents=True, exist_ok=True)
 
         # database path
@@ -177,7 +183,7 @@ class ClientDatabase:
             "SELECT sender, sender_phone_number, receiver, message, timestamp, profile_serialized_encrypted FROM messages ORDER BY timestamp"
         ):
             private_message = PrivateMessage(sender=self.aes_cipher.decrypts(row["sender"]), receiver=self.aes_cipher.decrypts(row["receiver"]), message=self.aes_cipher.decrypts(row["message"]), is_initial_message=False, timestamp=self.aes_cipher.decrypts(row["timestamp"]), profile_serialized_encrypted=pickle.loads(self.aes_cipher.decrypt(row["profile_serialized_encrypted"])))
-            self.messages.setdefault(row["sender_phone_number"], []).append(private_message)
+            self.messages.setdefault(self.aes_cipher.decrypts(row["sender_phone_number"]), []).append(private_message)
 
         # Ensure every contact has a message list
         for key in self.contacts:

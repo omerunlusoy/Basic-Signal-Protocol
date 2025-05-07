@@ -181,7 +181,7 @@ def run_dave():
         message="Hello Bob, it is Dave, save my number please."
     )
     time.sleep(6)
-    dave.check_for_messages()
+    # dave.check_for_messages()
 
     # delete the account
     if delete_accounts_:
